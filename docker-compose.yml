@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: qra
+      POSTGRES_PASSWORD: qra
+      POSTGRES_DB: qra
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qra"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  api:
+    build: ./backend
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      QRA_DATABASE_URL: postgresql+psycopg://qra:qra@db:5432/qra
+      QRA_REDIS_URL: redis://redis:6379/0
+    ports: ["8000:8000"]
+    volumes: ["./data:/app/data"]
+    command: uvicorn qra.api.main:app --host 0.0.0.0 --port 8000
+
+  web:
+    build: ./frontend
+    depends_on: [api]
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:8000
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:

@@ -1,0 +1,13 @@
+{
+  "name": "Quran Research Agent",
+  "short_name": "QRA",
+  "description": "Deterministic corpus retrieval, hypothesis testing and agentic research over the Qur'an",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1210",
+  "theme_color": "#0f1210",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

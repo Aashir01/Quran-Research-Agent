@@ -1,0 +1,34 @@
+[
+  {
+    "title": "Sabr always comes with salah",
+    "statement": "Quran mein sabr hamesha salah ke saath aata hai",
+    "language": "ur",
+    "note": "The claim the workbench was built to answer. Expect it to be refuted — and to see exactly which ayat refute it."
+  },
+  {
+    "title": "Taqwa is mostly a Makkan theme",
+    "statement": "Taqwa aksar makki surahon mein aata hai",
+    "language": "ur"
+  },
+  {
+    "title": "Iman and amal are always mentioned together",
+    "statement": "Iman hamesha amal ke saath aata hai",
+    "language": "ur"
+  },
+  {
+    "title": "Zakah never appears without salah",
+    "statement": "Zakah kabhi salah ke bagher nahi aati",
+    "language": "ur",
+    "note": "Phrased as a 'never' claim so the engine reports co-occurrences as violations."
+  },
+  {
+    "title": "Knowledge and guidance cluster in the same ayat",
+    "statement": "ilm mostly appears with hidayah in the same ayah",
+    "language": "en"
+  },
+  {
+    "title": "Justice is a Madani concern",
+    "statement": "adl mostly appears in madani surahs",
+    "language": "en"
+  }
+]
