@@ -1,0 +1,299 @@
+/*
+ * Mobile-first. The researchers this is for are on phones, in Urdu, reading
+ * right-to-left — so RTL and Nastaliq are the default case here, not a
+ * localisation afterthought bolted on at the end.
+ */
+
+:root {
+  --bg: #0f1210;
+  --surface: #171b19;
+  --surface-2: #1e2422;
+  --border: #2a322e;
+  --text: #e8ece9;
+  --muted: #97a49c;
+  --accent: #4ea87b;
+  --accent-dim: #2f6b4f;
+
+  /* The three provenance states. Deliberately distinct in hue AND in the
+     left-border treatment, so they survive greyscale and colour-blindness. */
+  --retrieved: #4ea87b;
+  --retrieved-bg: rgba(78, 168, 123, 0.09);
+  --suggested: #c9a227;
+  --suggested-bg: rgba(201, 162, 39, 0.09);
+  --own: #6b8fd6;
+  --own-bg: rgba(107, 143, 214, 0.09);
+
+  --refuted: #d4574e;
+  --refuted-bg: rgba(212, 87, 78, 0.1);
+  --supported: #4ea87b;
+
+  --radius: 10px;
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Self-host these in production (see frontend/README.md); the fallbacks keep
+     the app legible before you do. */
+  --font-arabic: "Amiri Quran", "Scheherazade New", "Traditional Arabic", "Times New Roman", serif;
+  --font-urdu: "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", "Nafees Nastaleeq", serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f8f7;
+    --surface: #ffffff;
+    --surface-2: #f0f2f1;
+    --border: #dde2df;
+    --text: #12160f;
+    --muted: #5d6b63;
+    --accent: #1f7a4d;
+    --accent-dim: #b9dcc9;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-text-size-adjust: 100%;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 16px 96px;
+}
+
+/* --- top bar + bottom nav (thumb reach on phones) ----------------------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand { font-weight: 650; letter-spacing: -0.01em; }
+.brand span { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tabbar a {
+  padding: 10px 4px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+.tabbar a.active { color: var(--accent); }
+.tabbar .icon { display: block; font-size: 1.15rem; line-height: 1.3; }
+
+/* --- cards -------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+
+.card.tight { padding: 10px 12px; }
+
+.muted { color: var(--muted); }
+.small { font-size: 0.83rem; }
+.mono { font-variant-numeric: tabular-nums; }
+
+/* --- Arabic + Urdu ------------------------------------------------------ */
+
+.ayah {
+  font-family: var(--font-arabic);
+  font-size: 1.6rem;
+  line-height: 2.15;
+  direction: rtl;
+  text-align: right;
+  margin: 6px 0 10px;
+}
+
+@media (max-width: 480px) {
+  .ayah { font-size: 1.4rem; line-height: 2.05; }
+}
+
+.ayah mark {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.urdu {
+  font-family: var(--font-urdu);
+  direction: rtl;
+  text-align: right;
+  /* Nastaliq needs vertical room; without it the kerning collides. */
+  line-height: 2.4;
+  font-size: 1.05rem;
+}
+
+[dir="rtl"] { text-align: right; }
+
+/* --- provenance: three visually distinct states -------------------------- */
+
+.prov {
+  border-inline-start: 3px solid var(--border);
+  padding-inline-start: 12px;
+}
+.prov-retrieved { border-inline-start-color: var(--retrieved); background: var(--retrieved-bg); }
+.prov-system_suggested { border-inline-start-color: var(--suggested); background: var(--suggested-bg); border-inline-start-style: dashed; }
+.prov-own_note { border-inline-start-color: var(--own); background: var(--own-bg); border-inline-start-style: double; border-inline-start-width: 5px; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.badge-retrieved { color: var(--retrieved); border-color: var(--retrieved); }
+.badge-system_suggested { color: var(--suggested); border-color: var(--suggested); }
+.badge-own_note { color: var(--own); border-color: var(--own); }
+.badge-exhaustive { color: var(--retrieved); border-color: var(--retrieved); }
+.badge-ranked { color: var(--suggested); border-color: var(--suggested); }
+.badge-refuted { color: var(--refuted); border-color: var(--refuted); }
+
+/* --- hypothesis workbench ----------------------------------------------- */
+
+.verdict {
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  margin: 14px 0;
+}
+.verdict-refuted { border-color: var(--refuted); background: var(--refuted-bg); }
+.verdict-supported { border-color: var(--supported); background: var(--retrieved-bg); }
+.verdict-supported_with_caveats,
+.verdict-not_supported,
+.verdict-descriptive { border-color: var(--suggested); background: var(--suggested-bg); }
+
+.verdict h2 { margin: 0 0 6px; font-size: 1.05rem; letter-spacing: 0.02em; text-transform: uppercase; }
+
+.violations-first {
+  /* The ordering is a product decision, so it is expressed structurally
+     rather than left to whichever list happens to render first. */
+  order: -1;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.stat {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.stat .n { font-size: 1.35rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat .k { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* --- forms -------------------------------------------------------------- */
+
+input, textarea, select, button {
+  font: inherit;
+  color: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  width: 100%;
+}
+textarea { min-height: 96px; resize: vertical; }
+button {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  width: auto;
+  padding: 10px 18px;
+}
+button:disabled { opacity: 0.55; cursor: progress; }
+button.ghost { background: transparent; border-color: var(--border); }
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1 1 220px; }
+
+/* --- charts (inline SVG, no chart library) ------------------------------ */
+
+.spark { width: 100%; height: 120px; display: block; }
+.spark .bar { fill: var(--accent); }
+.spark .bar.madani { fill: var(--own); }
+.spark .axis { stroke: var(--border); stroke-width: 1; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: start; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+.pill-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.pill {
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  width: auto;
+}
+
+.warn {
+  border-inline-start: 3px solid var(--suggested);
+  background: var(--suggested-bg);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.86rem;
+  margin: 8px 0;
+}
+
+.err {
+  border-inline-start: 3px solid var(--refuted);
+  background: var(--refuted-bg);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin: 8px 0;
+}
