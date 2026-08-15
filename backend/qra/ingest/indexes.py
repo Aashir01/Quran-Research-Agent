@@ -93,6 +93,19 @@ def refresh_counts(session: Session) -> dict:
             """
         )
     )
+    # Make the word count the *corpus's* word division rather than whitespace
+    # tokenisation of the text. Analytics divide segment counts by word counts
+    # to get rates per 1000 words; if numerator and denominator come from
+    # different word divisions, every rate is quietly a little wrong.
+    session.execute(
+        sql_text(
+            """
+            update ayah set word_count = c.n
+            from (select ayah_id, count(*) as n from word group by ayah_id) c
+            where ayah.id = c.ayah_id and ayah.word_count <> c.n
+            """
+        )
+    )
     session.commit()
     roots = session.scalar(select(func.count()).select_from(Root))
     return {"roots": roots}

@@ -59,6 +59,7 @@ _BUCKWALTER = {
 }
 
 _ROOT_SEPARATORS = re.compile(r"[\s\-‐-―_.,/]+")
+_DOUBLE_ALEF_RE = re.compile(r"ا{2,}")
 
 
 def strip_diacritics(text: str) -> str:
@@ -83,6 +84,34 @@ def search_form(text: str) -> str:
     text = fold_letters(text)
     text = _NON_ARABIC_RE.sub(" ", text)
     return _WS_RE.sub(" ", text).strip()
+
+
+def align_form(text: str) -> str:
+    """A looser key that also folds bare hamza onto alef.
+
+    Needed because the Uthmani and Imlaei traditions spell the same word
+    differently: ``وَبِٱلْءَاخِرَةِ`` against ``وَبِٱلۡأٓخِرَةِ``. Used to align the
+    morphology to the display text, and as the second tier of phrase search.
+
+    Repeated alefs are collapsed because madda is written as hamza+alef in one
+    tradition and a single carrier in the other; without this, folding hamza
+    onto alef turns one spelling into ``اا`` and the two never meet.
+    """
+    return _DOUBLE_ALEF_RE.sub("ا", fold_letters(search_form(text), _ROOT_FOLD))
+
+
+def loose_form(text: str) -> str:
+    """Alef-insensitive key — the last-resort matching tier.
+
+    The Uthmani script writes many long vowels as a superscript alef
+    (``ٱلۡعَٰلَمِينَ``) where the standard spelling uses a full one
+    (``الْعَالَمِينَ``), and no single fold reconciles them: ``الرحمن`` keeps no
+    alef while ``العالمين`` keeps one. Dropping alefs entirely matches both.
+
+    It over-merges (``قال`` and ``قل`` collapse), so it is never the primary
+    index — only a fallback, and callers must say when they used it.
+    """
+    return align_form(text).replace("ا", "")
 
 
 def normalise_root(value: str) -> str:
