@@ -1,4 +1,4 @@
-.PHONY: help setup db ingest api web test lint mcp licenses clean
+.PHONY: help setup db ingest api web test eval lint mcp licenses clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -27,6 +27,9 @@ web:  ## run the frontend on :3000
 
 test:  ## run the test suite
 	cd backend && .venv/bin/python -m pytest -q
+
+eval:  ## run the golden eval set (exit 1 on any ground-truth failure)
+	cd backend && .venv/bin/python -m qra.cli eval
 
 lint:  ## ruff
 	cd backend && .venv/bin/python -m ruff check qra tests

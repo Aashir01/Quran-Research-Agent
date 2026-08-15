@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from qra.arabic import normalise_root, search_form
+from qra.arabic import loose_form, normalise_root, search_form
 from qra.citations import Citation, ayah_citation, morphology_citation
 from qra.models import Ayah, Lemma, Root, Segment, Surah, Word
 from qra.retrieval.base import CorpusFilter, Span
@@ -331,14 +331,39 @@ def search_phrase(
     limit: int | None = None,
     ignore_diacritics: bool = True,
 ) -> OccurrenceResult:
-    """Exact Arabic phrase search.
+    """Exact Arabic phrase search, in two tiers.
 
     ``ignore_diacritics`` searches the folded column, so ``الرحمن`` matches
     ``ٱلرَّحۡمَٰنِ``. With it off, the raw Uthmani text is matched literally.
+
+    The strict tier indexes the Imlaei orthography — the spelling a researcher
+    types. If it finds nothing, an alef-insensitive tier runs, because the
+    Uthmani script writes many long vowels as a superscript alef and no single
+    fold reconciles ``الرحمن`` (no alef) with ``العالمين`` (alef). The looser
+    tier over-merges, so when it is used the result says so in ``description``
+    and in ``matched_tier``.
     """
     filters = filters or CorpusFilter()
     needle = search_form(phrase) if ignore_diacritics else phrase
     column = Ayah.text_search if ignore_diacritics else Ayah.text_uthmani
+    tier = "exact"
+
+    if ignore_diacritics:
+        strict_hits = session.scalar(
+            filters.apply(
+                select(func.count()).select_from(Ayah).where(Ayah.text_search.like(f"%{needle}%"))
+            )
+        )
+        if not strict_hits:
+            loose_needle = loose_form(phrase)
+            if loose_needle and session.scalar(
+                filters.apply(
+                    select(func.count())
+                    .select_from(Ayah)
+                    .where(Ayah.text_loose.like(f"%{loose_needle}%"))
+                )
+            ):
+                needle, column, tier = loose_needle, Ayah.text_loose, "alef_insensitive"
 
     stmt = select(Ayah).where(column.like(f"%{needle}%"))
     stmt = filters.apply(stmt)
@@ -353,7 +378,13 @@ def search_phrase(
         query=phrase,
         total_ayat=total or 0,
         description=f'exact phrase "{phrase}" in {filters.describe()}'
-        + (" (diacritics ignored)" if ignore_diacritics else ""),
+        + (" (diacritics ignored)" if ignore_diacritics else "")
+        + (
+            " — no exact match, so an ALEF-INSENSITIVE match was used; it can "
+            "over-merge (قال/قل), so check each hit"
+            if tier == "alef_insensitive"
+            else ""
+        ),
         truncated=bool(limit and total and limit < total),
     )
     # The occurrence total must cover every match, not just the page being
@@ -366,7 +397,11 @@ def search_phrase(
     )
 
     for ayah in session.scalars(ordered).all():
-        haystack = ayah.text_search if ignore_diacritics else ayah.text_uthmani
+        haystack = (
+            ayah.text_loose
+            if tier == "alef_insensitive"
+            else (ayah.text_search if ignore_diacritics else ayah.text_uthmani)
+        )
         count = haystack.count(needle)
         positions = _phrase_positions(haystack.split(), needle.split())
         result.hits.append(
@@ -378,7 +413,11 @@ def search_phrase(
                 ref=f"{ayah.surah_id}:{ayah.ayah_num}",
                 retrieval_mode="deterministic",
                 highlights=positions,
-                extra={"occurrences_in_ayah": count, "revelation_place": ayah.revelation_place},
+                extra={
+                    "occurrences_in_ayah": count,
+                    "revelation_place": ayah.revelation_place,
+                    "matched_tier": tier,
+                },
             )
         )
     return result

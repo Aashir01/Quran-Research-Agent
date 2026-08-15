@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -133,6 +134,39 @@ def cmd_search(args) -> int:
     return 0
 
 
+def cmd_eval(args) -> int:
+    """Run the golden eval set. Exit code 1 on any ground-truth failure."""
+    from qra.eval import render_report, run_eval
+
+    with session_scope() as session:
+        report = run_eval(session, tier=args.tier, only=args.only)
+
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False, default=str))
+    else:
+        for result in report["results"]:
+            mark = "PASS" if result["passed"] else "FAIL"
+            print(f"  [{mark}] {result['id']:<34} {result['detail']}")
+            if not result["passed"]:
+                print(f"         expected {result['expected']!r}, got {result['actual']!r}")
+                if result["error"]:
+                    print(f"         {result['error']}")
+        print(
+            f"\n{report['passed']}/{report['total']} passed  "
+            + ("(ground truth clean)" if report["correctness_ok"] else "(GROUND TRUTH FAILURES)")
+        )
+        for tier, counts in sorted(report["by_tier"].items()):
+            print(f"  {tier}: {counts['passed']} passed, {counts['failed']} failed")
+
+    if args.report:
+        Path(args.report).write_text(render_report(report), encoding="utf-8")
+        print(f"report written to {args.report}")
+
+    # Regression drift is reported but does not fail the run — only being
+    # demonstrably wrong does.
+    return 0 if report["correctness_ok"] else 1
+
+
 def cmd_serve(args) -> int:
     import uvicorn
 
@@ -186,6 +220,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--reload", action="store_true")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("eval", help="run the golden eval set")
+    p.add_argument("--tier", choices=["ground_truth", "regression"], help="restrict to one tier")
+    p.add_argument("--only", nargs="+", help="run only these item ids")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--report", help="write a markdown report to this path")
+    p.set_defaults(func=cmd_eval)
 
     sub.add_parser("mcp", help="run the MCP server on stdio").set_defaults(func=cmd_mcp)
 

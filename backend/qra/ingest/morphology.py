@@ -14,11 +14,21 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.orm import Session
 
-from qra.arabic import normalise_root, search_form
-from qra.models import Ayah, IngestLog, Lemma, Root, Segment, Word
+from qra.arabic import align_form, normalise_root, search_form
+from qra.models import (
+    Ayah,
+    ConceptRoot,
+    IngestLog,
+    Lemma,
+    LexiconEntry,
+    NoteAnchor,
+    Root,
+    Segment,
+    Word,
+)
 from qra.sources import MORPHOLOGY, checksum, fetch, require_ingestable
 
 ASPECTS = {"PERF", "IMPF", "IMPV"}
@@ -124,6 +134,64 @@ def _parse_lines(payload: bytes):
         yield surah, ayah, word, seg, form, pos_class, features
 
 
+def _align_display_tokens(
+    by_word: dict[tuple[int, int, int], list[tuple]],
+    ayah_ids: dict[tuple[int, int], int],
+    ayah_tokens: dict[int, list[str]],
+) -> dict[tuple[int, int], dict[int, str]]:
+    """Map each QAC word position to the display token(s) that spell it.
+
+    A naive ``tokens[position - 1]`` is wrong for this corpus: the Uthmani
+    source breaks tanwin sequences across a space (``هُدࣰ`` + ``ى`` for one word
+    ``هُدًى``), which shifts every later word in the ayah — 17.6% of all words
+    before this alignment existed. So we walk the two streams together and
+    merge display tokens until they spell the corpus's own form, comparing on
+    :func:`~qra.arabic.align_form` because the two orthographies also disagree
+    about hamza (``وَبِٱلْءَاخِرَةِ`` vs ``وَبِٱلۡأٓخِرَةِ``).
+    """
+    words_by_ayah: dict[tuple[int, int], list[tuple[int, str]]] = defaultdict(list)
+    for (surah, ayah, position), segments in by_word.items():
+        form = "".join(s[1] for s in sorted(segments, key=lambda s: s[0]))
+        words_by_ayah[(surah, ayah)].append((position, form))
+
+    aligned: dict[tuple[int, int], dict[int, str]] = {}
+    for key, words in words_by_ayah.items():
+        ayah_id = ayah_ids.get(key)
+        if ayah_id is None:
+            continue
+        tokens = ayah_tokens.get(ayah_id, [])
+        mapping: dict[int, str] = {}
+        cursor = 0
+        for position, form in sorted(words):
+            target = align_form(form)
+            if not target:
+                continue
+            merged, taken = "", 0
+            # Bounded lookahead: a QAC word never spans more than a handful of
+            # display tokens, and an unbounded walk would silently swallow the
+            # rest of the ayah when an alignment genuinely fails.
+            while cursor + taken < len(tokens) and taken < 4:
+                merged += align_form(tokens[cursor + taken])
+                taken += 1
+                if merged == target:
+                    # Joined without a separator: the tokens we merged are one
+                    # word that the source happened to break across a space, so
+                    # re-inserting one would keep the display wrong.
+                    mapping[position] = "".join(tokens[cursor : cursor + taken])
+                    cursor += taken
+                    break
+                if not target.startswith(merged):
+                    break
+            else:
+                taken = 0
+            if position not in mapping:
+                # Skip one display token and carry on, so a single word we
+                # cannot place does not desynchronise the rest of the ayah.
+                cursor += 1
+        aligned[key] = mapping
+    return aligned
+
+
 def ingest_morphology(session: Session, *, force: bool = False) -> dict:
     require_ingestable(MORPHOLOGY)
     payload = fetch(MORPHOLOGY.url, force=force)
@@ -141,6 +209,13 @@ def ingest_morphology(session: Session, *, force: bool = False) -> dict:
         for aid, text in session.execute(select(Ayah.id, Ayah.text_uthmani)).all()
     }
 
+    # Root ids are reassigned on every re-ingest, so anything keyed to them must
+    # go first and be rebuilt afterwards by `qra ingest indexes`. Nulling the
+    # workspace references rather than deleting them keeps a researcher's notes
+    # while dropping a link that would otherwise point at a different root.
+    session.execute(delete(ConceptRoot))
+    session.execute(update(NoteAnchor).where(NoteAnchor.root_id.isnot(None)).values(root_id=None))
+    session.execute(update(LexiconEntry).values(root_id=None))
     session.execute(delete(Segment))
     session.execute(delete(Word))
     session.execute(delete(Lemma))
@@ -195,6 +270,8 @@ def ingest_morphology(session: Session, *, force: bool = False) -> dict:
     for surah, ayah, word, seg, form, pos_class, analysis in parsed:
         by_word[(surah, ayah, word)].append((seg, form, pos_class, analysis))
 
+    display_by_ayah = _align_display_tokens(by_word, ayah_ids, ayah_tokens)
+
     word_rows: list[dict] = []
     segment_payload: list[tuple[tuple[int, int, int], list[tuple]]] = []
     token_mismatches: list[str] = []
@@ -218,10 +295,10 @@ def ingest_morphology(session: Session, *, force: bool = False) -> dict:
         root_id = root_ids.get(rkey) if rkey else None
         lemma_id = lemma_ids.get((lkey, root_id)) if lkey else None
 
-        tokens = ayah_tokens.get(ayah_id, [])
-        if position <= len(tokens):
-            text = tokens[position - 1]
-        else:
+        text = display_by_ayah.get((surah, ayah), {}).get(position)
+        if text is None:
+            # Alignment could not place this word in the display text; the
+            # corpus's own form is the honest fallback, and it is logged.
             text = "".join(s[1] for s in segments)
             token_mismatches.append(f"{surah}:{ayah}:{position}")
 

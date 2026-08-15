@@ -85,7 +85,13 @@ class Ayah(Base):
 
     text_uthmani: Mapped[str] = mapped_column(Text)
     text_imlaei: Mapped[str] = mapped_column(Text)
-    text_search: Mapped[str] = mapped_column(Text)  # folded, undiacritised
+    # Primary phrase key, built from the IMLAEI text: it uses the standard
+    # orthography a researcher actually types. Folding the Uthmani text instead
+    # loses the superscript alef, so العالمين would never match ٱلۡعَٰلَمِينَ.
+    text_search: Mapped[str] = mapped_column(Text)
+    # Alef-insensitive fallback key — reconciles the two orthographies where no
+    # single fold can. Only ever used as a labelled second tier.
+    text_loose: Mapped[str] = mapped_column(Text, default="")
     word_count: Mapped[int] = mapped_column(Integer)
     letter_count: Mapped[int] = mapped_column(Integer)
 
@@ -107,6 +113,7 @@ class Ayah(Base):
     __table_args__ = (
         UniqueConstraint("surah_id", "ayah_num", name="uq_ayah_ref"),
         Index("ix_ayah_search", "text_search"),
+        Index("ix_ayah_loose", "text_loose"),
     )
 
     @property
