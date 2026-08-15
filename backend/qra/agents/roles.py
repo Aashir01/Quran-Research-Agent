@@ -179,6 +179,7 @@ class CorpusAgent(Agent):
                 if not result.hits:
                     continue
                 ctx.ledger.add_spans(result.hits, agent=self.name, query=f"root:{root}")
+                ctx.ledger.add_verified(result.root_display or root, agent=self.name)
                 collected += len(result.hits)
                 ctx.ledger.add_claim(
                     f"Root {result.root_display} occurs {result.total_occurrences} times in "
@@ -226,6 +227,12 @@ class LisanAgent(Agent):
                     continue
                 profiles.append(profile)
                 forms = profile["surface_forms"][:6]
+                ctx.ledger.add_verified(
+                    profile["root_display"],
+                    *[f["form"] for f in forms],
+                    *[lemma["lemma"] for lemma in profile["lemmas"][:8]],
+                    agent=self.name,
+                )
                 ctx.ledger.add_claim(
                     f"Root {profile['root_display']} appears in {len(profile['surface_forms'])} distinct "
                     f"surface forms across verb forms {sorted(profile['verb_forms'])} and "
@@ -393,6 +400,7 @@ class PatternAgent(Agent):
             dist = tools.root_distribution(ctx.session, root)
             if not dist.get("found"):
                 continue
+            ctx.ledger.add_verified(dist["root_display"], agent=self.name)
             significance = dist["makki_madani"]["significance"]
             ctx.ledger.add_statistic(f"distribution:{root}", dist["makki_madani"], agent=self.name)
             stats_added += 1
@@ -413,6 +421,7 @@ class PatternAgent(Agent):
         if len(roots) >= 2:
             assoc = tools.cooccurrence(ctx.session, roots[0], roots[1])
             if assoc.get("found"):
+                ctx.ledger.add_verified(assoc["root_a"], assoc["root_b"], agent=self.name)
                 ctx.ledger.add_statistic(
                     f"cooccurrence:{roots[0]}+{roots[1]}", assoc, agent=self.name
                 )
@@ -670,7 +679,11 @@ class CriticAgent(Agent):
                 )
 
         if ctx.ledger.draft:
-            report["scripture_violations"] = scan_for_unquoted_scripture(ctx.ledger.draft)
+            # Arabic in the draft is legitimate when it appears in a span that
+            # was actually retrieved; anything else is fabrication.
+            report["scripture_violations"] = scan_for_unquoted_scripture(
+                ctx.ledger.draft, verified=ctx.ledger.verified_corpus_text()
+            )
 
         report["verdict"] = (
             "blocked"
@@ -749,14 +762,15 @@ class Scribe(Agent):
 
     def run(self, ctx: AgentContext, *, language: str | None = None, **kwargs) -> dict:
         language = language or ctx.ledger.language
+        verified = ctx.ledger.verified_corpus_text()
         draft = self._llm_draft(ctx, language) or self._deterministic_draft(ctx, language)
-        rendered = render(ctx.session, draft, strict=True)
+        rendered = render(ctx.session, draft, strict=True, verified=verified)
         if rendered.violations:
             # Rather than emit unverifiable scripture we fall back to the
             # deterministic draft, which can only contain database text.
             ctx.ledger.log(self.name, "draft_rejected", violations=rendered.violations[:3])
             draft = self._deterministic_draft(ctx, language)
-            rendered = render(ctx.session, draft, strict=True)
+            rendered = render(ctx.session, draft, strict=True, verified=verified)
         ctx.ledger.draft = draft
         ctx.ledger.log(
             self.name, "drafted", placeholders=rendered.placeholders_resolved, language=language

@@ -110,8 +110,14 @@ often they catch something real:
    cultural weight.
 
 **The rendering rule.** `agents/render.py` is the enforcement point, not the
-prompt. Scripture reaches a document only through a placeholder that resolves to
-a database row. The scanner that catches a model typing Arabic works word by
+prompt. Every Arabic string in the output must trace to the database: either it
+came through a placeholder that resolved to a row, or it appears verbatim in a
+span the run retrieved (the ledger also records database-derived fragments —
+surface forms, root displays — at the moment they are read). That framing is
+deliberate. An earlier version only accepted placeholders, and it blocked every
+run that quoted a tafsir passage the Tafsir agent had genuinely fetched: the
+guarantee worth enforcing is *this came from the corpus*, not *this used a
+particular syntax*. The scanner that catches a model typing Arabic works word by
 word — Uthmani orthography (wasla, superscript alef) marks a word as scripture on
 its own; Urdu-only letters mark it as the agent's own prose; three consecutive
 plain-Arabic words is a quotation attempt. Urdu and Arabic share a script, so
@@ -211,9 +217,45 @@ Stated plainly so nobody discovers it at the wrong moment:
   than a fake implementation.
 * **Arq is wired but the default job runner is a thread.** Fine for a single
   node; move to Redis before horizontal scaling.
-* **LangFuse settings exist; tracing calls are not instrumented.**
-* **The golden eval set is not built.** ~50 research questions with known-correct
-  citations, run on every prompt change, is the right next investment — the
-  scaffolding (`tools.py`, the ledger, the Critic report) is all in place for it.
 * **Lexicons are unloaded.** Lane, Mufradat and Lisan are public domain; the
   loader exists and takes a root-keyed JSONL. The OCR cleanup is the work.
+* **PDF export depends on the host's fonts.** It prints the HTML through
+  headless Chromium, which does Arabic shaping properly, but a machine with no
+  Qur'anic typeface produces a technically-correct document in a fallback face.
+  The export API reports which of the three states it is in rather than
+  pretending.
+* **The eval set's regression tier is not ground truth**, and says so on every
+  item. Growing the ground-truth tier — more independently verifiable counts,
+  more product contracts — is the ongoing work.
+
+
+---
+
+## Observability
+
+Spans wrap every agent node and every tool call, keyed by the ledger's run id,
+so "which tools did that run call, in what order, how long did each take" is
+answerable after the fact. LangFuse receives them when configured; when it is
+not, an in-process recorder keeps recent runs and `/meta/traces` serves them.
+The no-op path is deliberate — that question needs answering at 2am on a laptop
+with no SaaS account.
+
+Span payloads carry tool names, argument shapes, row counts and durations.
+Corpus text is not shipped to a third party: an ayah id reconstructs any span
+locally, and sending scripture to an observability vendor would be pointless
+and a licence question nobody needs.
+
+## Export
+
+One document model, five renderers, and RTL handled per format rather than
+hoped for: HTML sets `dir` and lets the browser shape; Word needs `w:bidi` on
+the paragraph *and* `w:rtl` plus a complex-script font on every run, or it lays
+Arabic out with Latin rules; PDF is printed from the HTML through headless
+Chromium because a browser is the most reliable Arabic typesetter available
+without bundling a shaping engine.
+
+Exports carry what makes a claim checkable: citations ordered scripture-first
+then commentary by death date, the three provenance states as visually distinct
+in print as on screen, the chance baseline beside every count, and the licence
+terms of the editions actually cited — several are non-commercial, and a
+document leaving the system takes its terms with it.

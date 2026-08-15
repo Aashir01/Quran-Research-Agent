@@ -20,9 +20,9 @@ export const viewport: Viewport = {
 const TABS = [
   { href: "/", label: "Search", icon: "⌕" },
   { href: "/workbench", label: "Workbench", icon: "⚖" },
+  { href: "/patterns", label: "Patterns", icon: "◇" },
   { href: "/notes", label: "Notes", icon: "✎" },
   { href: "/research", label: "Research", icon: "◈" },
-  { href: "/about", label: "Sources", icon: "§" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -32,6 +32,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="topbar">
           <Link href="/" className="brand" style={{ color: "inherit" }}>
             Quran Research Agent <span>· قرآنی تحقیق</span>
+          </Link>
+          <Link href="/about" className="small muted">
+            sources
           </Link>
         </header>
         <main className="shell">{children}</main>

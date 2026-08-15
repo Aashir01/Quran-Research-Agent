@@ -107,6 +107,17 @@ def provenance(session: Session = Depends(get_session)) -> list[dict]:
     ]
 
 
+@router.get("/traces")
+def traces(run_id: str | None = None) -> dict:
+    """Recent runs and their spans — available without any SaaS configured."""
+    from qra.observability import RECORDER
+    from qra.observability import status as trace_status
+
+    if run_id:
+        return {"run_id": run_id, "spans": RECORDER.spans(run_id)}
+    return {"status": trace_status(), "runs": RECORDER.runs()}
+
+
 @router.get("/capabilities")
 def capabilities() -> dict:
     """What is on, what is off, and why — so the UI never has to guess."""
@@ -118,6 +129,7 @@ def capabilities() -> dict:
             "graph": {"enabled": True, "exhaustive": True},
         },
         "agents": llm_status(),
+        "observability": __import__("qra.observability", fromlist=["status"]).status(),
         "hard_rules": [
             "Scripture, translations and hadith matn are rendered from the database by id.",
             "Every statistic is reported with its chance baseline.",

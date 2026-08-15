@@ -290,6 +290,17 @@ def narrative_diff(session: Session, figure: str) -> dict:
     return narrative_mod.narrative_diff(session, figure)
 
 
+def traced(name: str, fn, session, /, **kwargs):
+    """Run a tool inside a span. Used by the MCP server and the API so a tool
+    call is visible wherever it came from, not only inside an agent run."""
+    from qra.observability import trace
+
+    with trace(name, kind="tool", **kwargs) as span:
+        result = fn(session, **kwargs)
+        span["result"] = result if isinstance(result, dict) else {}
+    return result
+
+
 TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "search_root": {"fn": search_root, "exhaustive": True},
     "count_occurrences": {"fn": count_occurrences, "exhaustive": True},

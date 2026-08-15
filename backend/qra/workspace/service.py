@@ -269,8 +269,10 @@ def test_hypothesis(session: Session, hypothesis_id: int, *, sample: int = 50) -
     run = HypothesisRun(
         hypothesis_id=row.id,
         compiled_query=spec.to_dict(),
-        supporting=[u["unit"] for u in result.supporting],
-        violating=[u["unit"] for u in result.violating],
+        # The complete sets, not the display sample — a stored run is the audit
+        # trail, and a truncated one would understate the counter-examples.
+        supporting=result.supporting_ids,
+        violating=result.violating_ids,
         coverage=result.coverage,
         statistics=result.statistics,
         verdict=result.verdict,

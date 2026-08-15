@@ -21,11 +21,13 @@ The prompt asks for the same thing, but the prompt is not what enforces it.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from qra.arabic import search_form
 from qra.citations import ayah_citation, hadith_citation, translation_citation
 from qra.models import Ayah, Edition, Hadith, TafsirEntry, Translation
 
@@ -74,6 +76,11 @@ def _scripture_runs(prose: str) -> list[str]:
                 if len(current) >= _MIN_SCRIPTURE_WORDS:
                     runs.append(" ".join(current))
                 current = []
+                continue
+            if len(word) < 2:
+                # Single letters are root notation (ص ب ر) or spelled-out
+                # references, not a quotation. Counting them made the system
+                # flag a researcher's own question about a root.
                 continue
             current.append(word)
         if len(current) >= _MIN_SCRIPTURE_WORDS:
@@ -168,7 +175,9 @@ def _render_tafsir(session: Session, ref: str, edition_slug: str | None) -> tupl
     return entry.text, tafsir_citation(entry, edition).to_dict()
 
 
-def render(session: Session, text: str, *, strict: bool = True) -> RenderedOutput:
+def render(
+    session: Session, text: str, *, strict: bool = True, verified: Sequence[str] = ()
+) -> RenderedOutput:
     """Resolve every placeholder in ``text`` against the database.
 
     With ``strict`` (the default), any raw Arabic left in the model's own prose
@@ -206,7 +215,7 @@ def render(session: Session, text: str, *, strict: bool = True) -> RenderedOutpu
     if strict:
         # Check the model's own prose (placeholders already replaced by DB text,
         # so we test the *original* string minus its placeholders).
-        for run in _scripture_runs(PLACEHOLDER_RE.sub(" ", text)):
+        for run in scan_for_unquoted_scripture(text, verified=verified):
             violations.append(
                 f"Output contained un-cited Arabic ({run[:40]!r}). "
                 "Scripture must be referenced with a placeholder, never typed."
@@ -217,13 +226,28 @@ def render(session: Session, text: str, *, strict: bool = True) -> RenderedOutpu
     )
 
 
-def scan_for_unquoted_scripture(text: str) -> list[str]:
+def scan_for_unquoted_scripture(text: str, *, verified: Sequence[str] = ()) -> list[str]:
     """Standalone check used by the Critic before anything reaches a researcher.
 
-    Returns the offending runs. Empty means every piece of scripture in the
-    document arrived through a placeholder and therefore came from the database.
+    Returns the offending runs. Empty means every piece of Arabic in the
+    document is accounted for: it arrived through a placeholder, or it appears
+    verbatim in ``verified`` — the texts actually retrieved into the evidence
+    ledger.
+
+    The ``verified`` channel exists because the guarantee that matters is *this
+    Arabic came from the database*, not *this Arabic came through a specific
+    syntax*. A draft that quotes a tafsir passage the Tafsir agent retrieved is
+    quoting the database; a draft containing Arabic that appears in no retrieved
+    span is fabricating, whatever it looks like. Comparison is on the folded
+    search form, so orthography differences do not smuggle anything past — a
+    fabricated verse is not a substring of retrieved text under any folding.
     """
-    return _scripture_runs(PLACEHOLDER_RE.sub(" ", text))
+    haystack = " ".join(search_form(t) for t in verified if t)
+    return [
+        run
+        for run in _scripture_runs(PLACEHOLDER_RE.sub(" ", text))
+        if not (haystack and search_form(run) in haystack)
+    ]
 
 
 def placeholder_for(span) -> str:

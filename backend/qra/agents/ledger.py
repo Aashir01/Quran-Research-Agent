@@ -118,6 +118,11 @@ class EvidenceLedger:
         self.statistics: list[dict] = []
         self.draft: str | None = None
         self.critic_report: dict | None = None
+        # Arabic the system read from the database but that is not a whole span:
+        # surface forms, root displays, particle forms. Recorded at the moment
+        # of reading so the Critic can tell "quoted from the corpus" from
+        # "typed from nowhere" for every Arabic string in the output.
+        self.verified_fragments: list[str] = []
 
     # -- writing ---------------------------------------------------------
     def log(self, agent: str, action: str, **detail: Any) -> None:
@@ -183,6 +188,16 @@ class EvidenceLedger:
         self.statistics.append({"label": label, **payload})
         self.log(agent, "statistic", label=label)
 
+    def add_verified(self, *fragments: str, agent: str = "corpus") -> None:
+        """Record database-derived Arabic that will appear in prose."""
+        for fragment in fragments:
+            if fragment and fragment not in self.verified_fragments:
+                self.verified_fragments.append(fragment)
+
+    def verified_corpus_text(self) -> list[str]:
+        """Everything this run legitimately read from the corpus."""
+        return [span.text for span in self.spans.values()] + self.verified_fragments
+
     def add_open_question(self, text: str, *, agent: str = "critic") -> None:
         if text not in self.open_questions:
             self.open_questions.append(text)
@@ -213,6 +228,7 @@ class EvidenceLedger:
             "events": [e.to_dict() for e in self.events],
             "draft": self.draft,
             "critic_report": self.critic_report,
+            "verified_fragments": self.verified_fragments,
         }
 
     @classmethod
@@ -231,6 +247,7 @@ class EvidenceLedger:
         ledger.events = [AgentEvent(**e) for e in payload.get("events", [])]
         ledger.draft = payload.get("draft")
         ledger.critic_report = payload.get("critic_report")
+        ledger.verified_fragments = payload.get("verified_fragments", [])
         return ledger
 
     def summary(self) -> dict:
