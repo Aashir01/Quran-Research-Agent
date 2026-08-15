@@ -24,8 +24,10 @@ Verified against the real corpus, in this repository:
 | **Retrieval** | Deterministic (exhaustive), BM25 lexical, graph traversal — working. Semantic — implemented, off unless an embedding provider is configured |
 | **Pattern engine** | Hypothesis workbench, statistical honesty layer, PMI co-occurrence, nuzul-timeline distribution, mutashabihat (two tiers), conditional-structure mining, comparative narrative diff |
 | **Agents** | Ledger + 10 agents + Critic + template-injection rendering. Runs with or without a model configured |
+| **Workspace** | Anchored notes with backlinks, hypothesis version history, review gate, and export to Word / PDF / slides / HTML in Urdu and English |
 | **Surfaces** | FastAPI, MCP server (14 tools), Next.js PWA |
-| **Tests** | 61 passing, including exhaustiveness checks against independently computed counts |
+| **Observability** | Span tracing on every agent and tool, served locally; LangFuse when configured |
+| **Evidence** | 89 tests and a 53-item golden eval set, ground truth clean |
 
 ---
 
@@ -37,8 +39,10 @@ These are enforced in code, not in prompts.
 Agents emit placeholders — `{{ayah:2:255}}`, `{{translation:2:255|ur-jalandhry}}`,
 `{{hadith:hadith-bukhari|1}}` — and `qra.agents.render` resolves them against
 Postgres. An unresolvable reference produces a visible `[UNRESOLVED …]` failure,
-never plausible text. Any Arabic in a model's own prose is detected and the
-draft is rejected. A hallucinated ayah is a catastrophic failure, not a bug.
+never plausible text. Any Arabic in the output that neither came through a
+placeholder nor appears verbatim in a span the run actually retrieved is a
+violation, and the draft is rejected. A hallucinated ayah is a catastrophic
+failure, not a bug.
 
 **2. Every number comes with the number chance predicts.**
 `qra.analytics.stats` will not produce a finding without an explicit null model,
@@ -80,6 +84,9 @@ export QRA_DATABASE_URL="postgresql+psycopg://qra:qra@localhost:5432/qra"
 
 # 4. Frontend
 cd ../frontend && npm install && npm run dev # http://localhost:3000
+
+# 5. Check it against known-correct answers
+cd ../backend && .venv/bin/python -m qra.cli eval
 ```
 
 No API keys are required. With no model configured the agents still retrieve,
@@ -143,6 +150,7 @@ docs/                  LICENSING.md, ARCHITECTURE.md
 
 ## Documentation
 
+* [`data/eval/README.md`](data/eval/README.md) — the golden eval set and its two tiers
 * [`docs/LICENSING.md`](docs/LICENSING.md) — what ships, what does not, and why
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the layers, the build order,
   and what is deliberately left for later

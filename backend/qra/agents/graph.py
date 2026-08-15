@@ -36,6 +36,7 @@ from qra.agents.ledger import EvidenceLedger
 from qra.agents.roles import AGENTS, AgentContext
 from qra.config import settings
 from qra.models import ResearchRun
+from qra.observability import trace
 
 try:  # pragma: no cover - exercised only where the extra is installed
     from langgraph.graph import END, START, StateGraph
@@ -73,7 +74,9 @@ class ResearchGraph:
     # -- nodes -----------------------------------------------------------
     def _node(self, name: str, ctx: AgentContext, state: dict) -> dict:
         agent = AGENTS[name]
-        payload = agent.run(ctx, **state.get("kwargs", {}))
+        with trace(name, kind="agent", run_id=ctx.ledger.run_id, **state.get("kwargs", {})) as span:
+            payload = agent.run(ctx, **state.get("kwargs", {}))
+            span["result"] = payload if isinstance(payload, dict) else {}
         self.on_step(name, payload if isinstance(payload, dict) else {})
         _checkpoint(self.session, ctx.ledger, f"running:{name}")
         return payload or {}

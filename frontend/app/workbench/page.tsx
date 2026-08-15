@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, type HypothesisResult } from "@/lib/api";
+import { API_BASE, api, ApiError, type HypothesisResult } from "@/lib/api";
 import { ErrorNote, SignificanceNote } from "@/components/primitives";
 
 /**
@@ -153,6 +153,8 @@ export default function Workbench() {
         </section>
       )}
 
+      {result && <ExportBar statement={statement} language={language} title={result.spec.subject.label} />}
+
       {result && (
         <section>
           <div className={`verdict verdict-${result.verdict}`}>
@@ -220,5 +222,67 @@ export default function Workbench() {
         </section>
       )}
     </>
+  );
+}
+
+
+/**
+ * Saving is what makes a tested claim exportable: the export renders a stored
+ * hypothesis run, so the document and the audit trail are the same object.
+ */
+function ExportBar({
+  statement,
+  language,
+  title,
+}: {
+  statement: string;
+  language: string;
+  title: string;
+}) {
+  const [id, setId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const created = await fetch(`${API_BASE}/workspace/hypotheses`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: title || statement.slice(0, 60), statement, language }),
+      }).then((r) => r.json());
+      await fetch(`${API_BASE}/workspace/hypotheses/${created.id}/test`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sample: 40 }),
+      });
+      setId(created.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (id === null) {
+    return (
+      <div className="row" style={{ marginTop: 12 }}>
+        <button className="ghost" onClick={save} disabled={busy}>
+          {busy ? "Saving…" : "Save to workbench & enable export"}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="row" style={{ marginTop: 12 }}>
+      <span className="small muted">Export:</span>
+      {["md", "html", "docx", "pptx", "pdf"].map((format) => (
+        <a
+          key={format}
+          className="pill"
+          href={`${API_BASE}/export/hypothesis/${id}?format=${format}&language=${language}`}
+        >
+          {format.toUpperCase()}
+        </a>
+      ))}
+      <span className="small muted">citations and licence terms travel with the document</span>
+    </div>
   );
 }

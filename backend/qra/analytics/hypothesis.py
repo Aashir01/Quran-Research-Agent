@@ -355,9 +355,14 @@ class HypothesisResult:
     universe_size: int
     supporting_count: int
     violating_count: int
-    violating: list[dict]  # first, always
+    violating: list[dict]  # first, always — a display sample
     supporting: list[dict]
     statistics: dict
+    # The complete unit id sets. `violating`/`supporting` above are capped by
+    # `sample` for display; anything that persists or exports a result must use
+    # these, or a stored run will claim 6 counter-examples when there were 86.
+    violating_ids: list[int] = field(default_factory=list)
+    supporting_ids: list[int] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -367,8 +372,10 @@ class HypothesisResult:
             # Order is part of the contract: violations before support.
             "violating_count": self.violating_count,
             "violating": self.violating,
+            "violating_ids": self.violating_ids,
             "supporting_count": self.supporting_count,
             "supporting": self.supporting,
+            "supporting_ids": self.supporting_ids,
             "coverage": round(self.coverage, 4),
             "universe_size": self.universe_size,
             "statistics": self.statistics,
@@ -482,6 +489,8 @@ def _run_cooccurrence(session: Session, spec: HypothesisSpec, *, sample: int) ->
         violating_count=len(violating),
         violating=_describe_units(session, spec.scope, sorted(violating), sample),
         supporting=_describe_units(session, spec.scope, sorted(supporting), sample),
+        violating_ids=sorted(violating),
+        supporting_ids=sorted(supporting),
         statistics={
             **significance.to_dict(),
             "baseline_rate": round(baseline, 4),
@@ -547,6 +556,8 @@ def _run_distribution(session: Session, spec: HypothesisSpec, *, sample: int) ->
         violating_count=len(violating),
         violating=_describe_units(session, spec.scope, sorted(violating), sample),
         supporting=_describe_units(session, spec.scope, sorted(in_place), sample),
+        violating_ids=sorted(violating),
+        supporting_ids=sorted(in_place),
         statistics={
             **significance.to_dict(),
             "baseline_rate": round(baseline, 4),

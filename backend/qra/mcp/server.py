@@ -273,7 +273,7 @@ def call_tool(name: str, arguments: dict) -> dict:
     if spec is None:
         raise ValueError(f"unknown tool: {name}")
     with session_scope() as session:
-        return spec["handler"](session, **arguments)
+        return tools.traced(name, spec["handler"], session, **arguments)
 
 
 def main() -> None:  # pragma: no cover - requires the mcp extra and a client
