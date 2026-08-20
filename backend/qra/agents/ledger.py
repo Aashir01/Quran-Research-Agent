@@ -41,12 +41,22 @@ class LedgerSpan:
     query: str
     score: float | None = None
     extra: dict = field(default_factory=dict)
+    # WP-04: set when the retrieved text is instruction-shaped. Retrieval is
+    # never blocked — the flag travels with the span so the Critic can refuse
+    # to let a claim rest on it unexamined.
+    injection_suspected: bool = False
+    injection_findings: list = field(default_factory=list)
 
     @classmethod
     def from_span(cls, span: Span, *, agent: str, query: str) -> LedgerSpan:
+        from qra.security.injection import scan
+
         digest = hashlib.sha256(
             f"{span.kind}|{span.ref}|{span.citation.edition_slug}|{span.text[:120]}".encode()
         ).hexdigest()[:12]
+        # Only non-Qur'anic material can carry an injection: the Arabic text is
+        # fixed and verified, commentary and uploads are not.
+        result = scan(span.text) if span.kind != "ayah" else None
         return cls(
             id=digest,
             kind=span.kind,
@@ -59,6 +69,8 @@ class LedgerSpan:
             query=query,
             score=span.score,
             extra=span.extra,
+            injection_suspected=bool(result and result.suspicious),
+            injection_findings=[f.to_dict() for f in (result.findings if result else [])],
         )
 
 
@@ -206,6 +218,10 @@ class EvidenceLedger:
     # -- reading ---------------------------------------------------------
     def spans_for(self, claim_id: str) -> list[LedgerSpan]:
         return [self.spans[s] for s in self.claims[claim_id].support if s in self.spans]
+
+    def flagged_spans(self) -> list[LedgerSpan]:
+        """Spans whose text is instruction-shaped (WP-04)."""
+        return [s for s in self.spans.values() if s.injection_suspected]
 
     def cited_refs(self) -> set[str]:
         return {span.ref for span in self.spans.values() if span.ref}

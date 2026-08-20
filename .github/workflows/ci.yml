@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  # WP-07: the matrix exists because the repo promises to work without
+  # LangGraph, without pgvector and without a model key. A promise nobody tests
+  # is a wish.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: "full", langgraph: true, model_key: true}
+          - {name: "no-langgraph", langgraph: false, model_key: true}
+          - {name: "no-model-key", langgraph: true, model_key: false}
+    name: test (${{ matrix.name }})
+    services:
+      postgres:
+        image: postgres:16
+        env: {POSTGRES_USER: qra, POSTGRES_PASSWORD: qra, POSTGRES_DB: qra}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      QRA_DATABASE_URL: postgresql+psycopg://qra:qra@localhost:5432/qra
+      QRA_JWT_SECRET: ci-test-secret
+      QRA_SECRET_KEY: ci-master-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+
+      - name: Install
+        working-directory: backend
+        run: |
+          pip install -e ".[dev,semantic]"
+          ${{ matrix.langgraph && 'pip install "langgraph>=0.2.45"' || 'echo "langgraph deliberately absent"' }}
+
+      - name: Model key
+        if: matrix.model_key
+        run: echo "QRA_ANTHROPIC_API_KEY=sk-ci-not-a-real-key" >> $GITHUB_ENV
+
+      - name: Migrations produce the same schema as initdb
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          python - <<'PY'
+          import subprocess
+          from sqlalchemy import create_engine, inspect
+          from qra.config import settings
+          from qra.models import Base
+          engine = create_engine(settings.database_url)
+          migrated = set(inspect(engine).get_table_names()) - {"alembic_version"}
+          declared = set(Base.metadata.tables)
+          assert migrated == declared, f"drift: {declared ^ migrated}"
+          print(f"{len(migrated)} tables match")
+          PY
+
+      - name: Ingest corpus
+        working-directory: backend
+        run: python -m qra.cli ingest
+
+      - name: Ingest determinism — checksums match the recorded manifest
+        working-directory: backend
+        run: python -m qra.cli verify-ingest
+
+      - name: Tests
+        working-directory: backend
+        run: python -m pytest -q
+
+      - name: Ground-truth eval (blocks the build on a moved answer)
+        working-directory: backend
+        run: python -m qra.cli eval --tier ground_truth
+
+      - name: Hallucination red-team suite
+        working-directory: backend
+        run: python -m pytest tests/test_redteam.py tests/test_injection.py -q
+
+      - name: Performance budgets
+        working-directory: backend
+        run: python -m pytest tests/test_performance.py -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - working-directory: backend
+        run: pip install ruff && ruff check qra tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: "22", cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - working-directory: frontend
+        run: npm ci && npm run build

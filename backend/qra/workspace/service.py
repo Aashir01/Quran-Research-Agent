@@ -56,6 +56,7 @@ def create_note(
     ayah_refs: list[str] | None = None,
     root_refs: list[str] | None = None,
     visibility: str = "private",
+    org_id: int | None = None,
 ) -> dict:
     if provenance not in PROVENANCE:
         raise ValueError(f"provenance must be one of {PROVENANCE}")
@@ -64,6 +65,7 @@ def create_note(
         title=title,
         body=body,
         author_id=author_id,
+        org_id=org_id,
         language=language,
         provenance=provenance,
         tags=tags or [],
@@ -95,9 +97,13 @@ def create_note(
     return get_note(session, note.id)
 
 
-def get_note(session: Session, note_id: int) -> dict:
+def get_note(session: Session, note_id: int, *, principal=None) -> dict:
     note = session.get(Note, note_id)
     if note is None:
+        return {}
+    if principal is not None and not _may_read(principal, note):
+        # Indistinguishable from "not found": a 403 here would confirm the note
+        # exists to someone with no right to know that.
         return {}
     anchors = session.scalars(select(NoteAnchor).where(NoteAnchor.note_id == note_id)).all()
     return {
@@ -150,17 +156,45 @@ def notes_for_root(session: Session, root: str) -> list[dict]:
     return [get_note(session, nid) for nid in dict.fromkeys(note_ids)]
 
 
-def list_notes(session: Session, *, author_id: int | None = None, limit: int = 100) -> list[dict]:
+def _may_read(principal, row) -> bool:
+    """Own rows always; org rows when they are shared; nothing else."""
+    if getattr(row, "author_id", None) == principal.user_id:
+        return True
+    if getattr(row, "visibility", "private") == "private":
+        return False
+    return getattr(row, "org_id", None) == principal.org_id
+
+
+def _may_write(principal, row) -> bool:
+    return principal.owns(row)
+
+
+def list_notes(
+    session: Session,
+    *,
+    principal=None,
+    author_id: int | None = None,
+    mine_only: bool = False,
+    limit: int = 100,
+) -> list[dict]:
     stmt = select(Note).order_by(Note.updated_at.desc()).limit(limit)
     if author_id:
         stmt = stmt.where(Note.author_id == author_id)
-    return [get_note(session, n.id) for n in session.scalars(stmt).all()]
+    rows = session.scalars(stmt).all()
+    if principal is not None:
+        if mine_only:
+            rows = [n for n in rows if n.author_id == principal.user_id]
+        else:
+            rows = [n for n in rows if _may_read(principal, n)]
+    return [get_note(session, n.id) for n in rows]
 
 
-def update_note(session: Session, note_id: int, **fields) -> dict:
+def update_note(session: Session, note_id: int, *, principal=None, **fields) -> dict:
     note = session.get(Note, note_id)
     if note is None:
         return {}
+    if principal is not None and not _may_write(principal, note):
+        raise PermissionError("you can only edit your own notes")
     for key in ("title", "body", "language", "tags", "visibility", "provenance"):
         if key in fields and fields[key] is not None:
             if key == "provenance" and fields[key] not in PROVENANCE:
@@ -170,10 +204,12 @@ def update_note(session: Session, note_id: int, **fields) -> dict:
     return get_note(session, note_id)
 
 
-def delete_note(session: Session, note_id: int) -> bool:
+def delete_note(session: Session, note_id: int, *, principal=None) -> bool:
     note = session.get(Note, note_id)
     if note is None:
         return False
+    if principal is not None and not _may_write(principal, note):
+        raise PermissionError("you can only delete your own notes")
     session.delete(note)
     session.commit()
     return True
@@ -193,6 +229,7 @@ def create_hypothesis(
     statement: str,
     language: str = "ur",
     author_id: int | None = None,
+    org_id: int | None = None,
     compile_now: bool = True,
 ) -> dict:
     compiled: dict = {}
@@ -206,6 +243,7 @@ def create_hypothesis(
         statement=statement,
         language=language,
         author_id=author_id,
+        org_id=org_id,
         compiled_query=compiled,
         status="believed",
         version=1,
@@ -321,11 +359,23 @@ def serialise_hypothesis(session: Session, row: Hypothesis) -> dict:
     }
 
 
-def list_hypotheses(session: Session, *, author_id: int | None = None) -> list[dict]:
+def list_hypotheses(
+    session: Session, *, principal=None, author_id: int | None = None, mine_only: bool = False
+) -> list[dict]:
     stmt = select(Hypothesis).order_by(Hypothesis.updated_at.desc())
     if author_id:
         stmt = stmt.where(Hypothesis.author_id == author_id)
-    return [serialise_hypothesis(session, h) for h in session.scalars(stmt).all()]
+    rows = session.scalars(stmt).all()
+    if principal is not None:
+        if mine_only:
+            rows = [h for h in rows if h.author_id == principal.user_id]
+        else:
+            rows = [
+                h
+                for h in rows
+                if h.author_id == principal.user_id or h.org_id == principal.org_id
+            ]
+    return [serialise_hypothesis(session, h) for h in rows]
 
 
 def hypothesis_history(session: Session, hypothesis_id: int) -> list[dict]:
@@ -343,12 +393,14 @@ def hypothesis_history(session: Session, hypothesis_id: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def register_topic(session: Session, *, topic: str, owner_id: int | None = None) -> dict:
+def register_topic(
+    session: Session, *, topic: str, owner_id: int | None = None, org_id: int | None = None
+) -> dict:
     slug = re.sub(r"\W+", "-", topic.lower()).strip("-")[:120]
     existing = session.scalars(
         select(TopicRegistration).where(TopicRegistration.slug == slug)
     ).all()
-    row = TopicRegistration(topic=topic, slug=slug, owner_id=owner_id)
+    row = TopicRegistration(topic=topic, slug=slug, owner_id=owner_id, org_id=org_id)
     session.add(row)
     session.commit()
     return {
@@ -395,12 +447,26 @@ def submit_for_review(session: Session, finding_id: int) -> dict:
 
 
 def review_finding(
-    session: Session, finding_id: int, *, reviewer_id: int, approve: bool, notes: str | None = None
+    session: Session,
+    finding_id: int,
+    *,
+    reviewer_id: int,
+    approve: bool,
+    notes: str | None = None,
+    principal=None,
 ) -> dict:
-    """Sign-off gate: nothing becomes public without a named reviewer."""
+    """Sign-off gate: nothing becomes public without a named reviewer.
+
+    Two separate rules, both enforced here rather than in the route: the actor
+    must hold the reviewer role, and no one may sign off their own work.
+    """
     finding = session.get(Finding, finding_id)
     if finding is None:
         return {}
+    if principal is not None:
+        principal.require("reviewer")
+        if principal.user_id != reviewer_id:
+            raise ValueError("reviewer_id must match the authenticated reviewer")
     if reviewer_id == finding.author_id:
         raise ValueError("a finding cannot be approved by its own author")
     finding.review_status = "approved" if approve else "changes_requested"

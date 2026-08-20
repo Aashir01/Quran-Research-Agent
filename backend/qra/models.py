@@ -492,8 +492,22 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(256), unique=True)
     display_name: Mapped[str] = mapped_column(String(128))
     preferred_language: Mapped[str] = mapped_column(String(8), default="en")
-    role: Mapped[str] = mapped_column(String(16), default="researcher")  # researcher|reviewer
+    # reader < researcher < reviewer < admin. Enforced as a constraint so an
+    # invented role cannot be written by any code path (WP-01).
+    role: Mapped[str] = mapped_column(String(16), default="researcher")
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"), nullable=True, index=True)
+    # Only set for local password auth; OIDC users have none.
+    password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    oidc_subject: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
+    monthly_token_budget: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint(
+            "role in ('reader','researcher','reviewer','admin')", name="ck_user_role"
+        ),
+    )
 
 
 class Note(Base):
@@ -503,6 +517,7 @@ class Note(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True, index=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(512))
     body: Mapped[str] = mapped_column(Text)
     language: Mapped[str] = mapped_column(String(8), default="en")
@@ -547,6 +562,7 @@ class Hypothesis(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(512))
     statement: Mapped[str] = mapped_column(Text)  # natural language, Urdu or English
     language: Mapped[str] = mapped_column(String(8), default="ur")
@@ -593,6 +609,7 @@ class Finding(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"), nullable=True, index=True)
     question: Mapped[str] = mapped_column(Text)
     summary: Mapped[str] = mapped_column(Text)
     language: Mapped[str] = mapped_column(String(8), default="en")
@@ -622,6 +639,13 @@ class ResearchRun(Base):
     output: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True, index=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"), nullable=True, index=True)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    cost_ceiling_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # incomplete means the ceiling stopped it: partial results, never a
+    # fabricated completion (WP-05).
+    incomplete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -637,6 +661,7 @@ class TopicRegistration(Base):
     topic: Mapped[str] = mapped_column(String(512))
     slug: Mapped[str] = mapped_column(String(128), index=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default="active")
     created_at: Mapped[datetime] = _now()
 
@@ -653,3 +678,91 @@ class IngestLog(Base):
     rows: Mapped[int] = mapped_column(Integer, default=0)
     detail: Mapped[dict] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = _now()
+
+
+# ---------------------------------------------------------------------------
+# WP-01/WP-53: identity, roles and tenancy
+# ---------------------------------------------------------------------------
+
+
+class Organisation(Base):
+    """A tenant. Corpus data is shared; everything user-generated is scoped here."""
+
+    __tablename__ = "organisation"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(256))
+    # local_only refuses every hosted provider call — some institutions cannot
+    # send text to third parties at all (WP-12).
+    privacy_mode: Mapped[str] = mapped_column(String(16), default="standard")
+    model_policy: Mapped[dict] = mapped_column(JSONType, default=dict)
+    monthly_token_budget: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("privacy_mode in ('standard','local_only')", name="ck_org_privacy"),
+    )
+
+
+class ApiKeyRecord(Base):
+    """Bring-your-own-key storage (WP-12).
+
+    Ciphertext only. No endpoint returns it, no log records it; the plaintext
+    exists in memory for the duration of one provider call.
+    """
+
+    __tablename__ = "api_key_record"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(32), index=True)
+    ciphertext: Mapped[str] = mapped_column(Text)
+    fingerprint: Mapped[str] = mapped_column(String(16))  # last 4 + hash, for display
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "provider", name="uq_api_key"),)
+
+
+# ---------------------------------------------------------------------------
+# WP-05/WP-06: cost governance and caching
+# ---------------------------------------------------------------------------
+
+
+class UsageRecord(Base):
+    """One model call's cost, attributed to a run, a user and an org."""
+
+    __tablename__ = "usage_record"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String(64))
+    role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    cached: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = _now()
+
+
+class CacheEntry(Base):
+    """Content-addressed cache for model calls and expensive analytics (WP-06).
+
+    Deterministic retrieval is deliberately not cached: the SQL is cheaper than
+    the cache lookup would be.
+    """
+
+    __tablename__ = "cache_entry"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24), index=True)
+    value: Mapped[dict] = mapped_column(JSONType)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = _now()
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

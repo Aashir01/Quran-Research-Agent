@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from qra import sources
 from qra.agents.llm import status as llm_status
+from qra.api.deps import CurrentUser
 from qra.db import get_session
 from qra.models import (
     Ayah,
@@ -105,6 +107,40 @@ def provenance(session: Session = Depends(get_session)) -> list[dict]:
         }
         for r in rows
     ]
+
+
+@router.get("/ready")
+def ready(session: Session = Depends(get_session)) -> dict:
+    """Readiness, distinct from liveness: is the corpus actually loaded here?"""
+    from qra import ops
+
+    payload = ops.readiness(session)
+    if not payload["ready"]:
+
+        return JSONResponse(payload, status_code=503)
+    return payload
+
+
+@router.get("/cache")
+def cache_stats(session: Session = Depends(get_session)) -> dict:
+    from qra import cache
+
+    return cache.stats(session)
+
+
+@router.get("/jobs")
+def jobs() -> dict:
+    from qra.jobs import backend, list_jobs
+
+    return {"backend": backend(), "jobs": list_jobs()}
+
+
+@router.get("/usage")
+def usage(principal=CurrentUser, session: Session = Depends(get_session)) -> dict:
+    """What this principal has spent in the last 30 days (WP-05)."""
+    from qra.budget import monthly_usage
+
+    return monthly_usage(session, user_id=principal.user_id, org_id=principal.org_id)
 
 
 @router.get("/traces")

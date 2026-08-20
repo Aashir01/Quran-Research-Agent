@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from qra.api.deps import needs
 from qra.db import get_session
 from qra.workspace import service
 
@@ -23,7 +24,7 @@ def create_note(
     tags: list[str] | None = Body(None),
     ayah_refs: list[str] | None = Body(None),
     root_refs: list[str] | None = Body(None),
-    author_id: int | None = Body(None),
+    principal=needs("researcher"),
     session: Session = Depends(get_session),
 ) -> dict:
     """Create a note. ``[[2:255]]`` and ``[[root:صبر]]`` in the body auto-anchor."""
@@ -37,36 +38,51 @@ def create_note(
             tags=tags,
             ayah_refs=ayah_refs,
             root_refs=root_refs,
-            author_id=author_id,
+            author_id=principal.user_id,
+            org_id=principal.org_id,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/notes")
-def list_notes(author_id: int | None = None, session: Session = Depends(get_session)) -> list[dict]:
-    return service.list_notes(session, author_id=author_id)
+def list_notes(
+    mine_only: bool = False,
+    principal=needs("reader"),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """Private notes are visible to their author; shared ones to the org."""
+    return service.list_notes(session, principal=principal, mine_only=mine_only)
 
 
 @router.get("/notes/{note_id}")
-def get_note(note_id: int, session: Session = Depends(get_session)) -> dict:
-    payload = service.get_note(session, note_id)
+def get_note(
+    note_id: int, principal=needs("reader"), session: Session = Depends(get_session)
+) -> dict:
+    payload = service.get_note(session, note_id, principal=principal)
     if not payload:
         raise HTTPException(404, f"note {note_id} not found")
     return payload
 
 
 @router.patch("/notes/{note_id}")
-def update_note(note_id: int, fields: dict = Body(...), session: Session = Depends(get_session)) -> dict:
-    payload = service.update_note(session, note_id, **fields)
+def update_note(
+    note_id: int,
+    fields: dict = Body(...),
+    principal=needs("researcher"),
+    session: Session = Depends(get_session),
+) -> dict:
+    payload = service.update_note(session, note_id, principal=principal, **fields)
     if not payload:
         raise HTTPException(404, f"note {note_id} not found")
     return payload
 
 
 @router.delete("/notes/{note_id}")
-def delete_note(note_id: int, session: Session = Depends(get_session)) -> dict:
-    return {"deleted": service.delete_note(session, note_id)}
+def delete_note(
+    note_id: int, principal=needs("researcher"), session: Session = Depends(get_session)
+) -> dict:
+    return {"deleted": service.delete_note(session, note_id, principal=principal)}
 
 
 @router.get("/backlinks/ayah/{surah}/{ayah}")
@@ -88,21 +104,35 @@ def create_hypothesis(
     title: str = Body(...),
     statement: str = Body(...),
     language: str = Body("ur"),
-    author_id: int | None = Body(None),
+    principal=needs("researcher"),
     session: Session = Depends(get_session),
 ) -> dict:
     return service.create_hypothesis(
-        session, title=title, statement=statement, language=language, author_id=author_id
+        session,
+        title=title,
+        statement=statement,
+        language=language,
+        author_id=principal.user_id,
+        org_id=principal.org_id,
     )
 
 
 @router.get("/hypotheses")
-def list_hypotheses(author_id: int | None = None, session: Session = Depends(get_session)) -> list[dict]:
-    return service.list_hypotheses(session, author_id=author_id)
+def list_hypotheses(
+    mine_only: bool = False,
+    principal=needs("reader"),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    return service.list_hypotheses(session, principal=principal, mine_only=mine_only)
 
 
 @router.post("/hypotheses/{hypothesis_id}/test")
-def test_hypothesis(hypothesis_id: int, sample: int = Body(50, embed=True), session: Session = Depends(get_session)) -> dict:
+def test_hypothesis(
+    hypothesis_id: int,
+    sample: int = Body(50, embed=True),
+    principal=needs("researcher"),
+    session: Session = Depends(get_session),
+) -> dict:
     payload = service.test_hypothesis(session, hypothesis_id, sample=sample)
     if not payload:
         raise HTTPException(404, f"hypothesis {hypothesis_id} not found")
@@ -114,6 +144,7 @@ def revise_hypothesis(
     hypothesis_id: int,
     statement: str = Body(..., embed=True),
     reason: str | None = Body(None, embed=True),
+    principal=needs("researcher"),
     session: Session = Depends(get_session),
 ) -> dict:
     payload = service.revise_hypothesis(session, hypothesis_id, statement=statement, reason=reason)
@@ -127,6 +158,7 @@ def set_status(
     hypothesis_id: int,
     status: str = Body(..., embed=True),
     reason: str | None = Body(None, embed=True),
+    principal=needs("researcher"),
     session: Session = Depends(get_session),
 ) -> dict:
     """Abandoning requires a reason — that is enforced, not suggested."""
@@ -140,7 +172,9 @@ def set_status(
 
 
 @router.get("/hypotheses/{hypothesis_id}/history")
-def history(hypothesis_id: int, session: Session = Depends(get_session)) -> list[dict]:
+def history(
+    hypothesis_id: int, principal=needs("reader"), session: Session = Depends(get_session)
+) -> list[dict]:
     return service.hypothesis_history(session, hypothesis_id)
 
 
@@ -150,18 +184,22 @@ def history(hypothesis_id: int, session: Session = Depends(get_session)) -> list
 @router.post("/topics")
 def register_topic(
     topic: str = Body(..., embed=True),
-    owner_id: int | None = Body(None, embed=True),
+    principal=needs("researcher"),
     session: Session = Depends(get_session),
 ) -> dict:
     """Claim a topic. Returns whoever already claimed it, so duplicate work surfaces early."""
-    return service.register_topic(session, topic=topic, owner_id=owner_id)
+    return service.register_topic(
+        session, topic=topic, owner_id=principal.user_id, org_id=principal.org_id
+    )
 
 
 @router.post("/users")
 def ensure_user(
     email: str = Body(..., embed=True),
     display_name: str | None = Body(None, embed=True),
+    principal=needs("admin"),
     session: Session = Depends(get_session),
 ) -> dict:
+    """Admin-only. Self-service registration lives at /auth/register."""
     user = service.ensure_user(session, email, display_name)
     return {"id": user.id, "email": user.email, "display_name": user.display_name, "role": user.role}

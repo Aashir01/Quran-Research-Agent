@@ -10,7 +10,17 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from qra.api.routers import analytics, corpus, export, meta, research, search, workspace
+from qra import ops
+from qra.api.routers import (
+    analytics,
+    auth,
+    corpus,
+    export,
+    meta,
+    research,
+    search,
+    workspace,
+)
 
 app = FastAPI(
     title="Quran Research Agent",
@@ -22,6 +32,9 @@ app = FastAPI(
     ),
 )
 
+ops.configure_logging()
+ops.install(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,6 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(corpus.router)
 app.include_router(search.router)
 app.include_router(analytics.router)

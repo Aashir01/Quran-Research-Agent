@@ -596,6 +596,10 @@ class CriticAgent(Agent):
        are re-run as hypotheses against the whole corpus.
     4. **Numerology and statistics guard** — flags counts presented without a
        baseline and claims that rest on suspiciously round numbers.
+    5. **Instruction-origin checking** (WP-04) — a claim supported only by
+       instruction-shaped spans is quarantined. Retrieved commentary can contain
+       a sentence that reads as a directive; if the emerging answer traces back
+       to one, that is the single most likely way this system gets steered.
     """
 
     name = "critic"
@@ -611,7 +615,26 @@ class CriticAgent(Agent):
             "counter_examples_found": 0,
             "numerology_notes": [],
             "scripture_violations": [],
+            "injection_flagged_spans": [],
+            "claims_from_flagged_spans": [],
         }
+
+        flagged = {span.id for span in ctx.ledger.flagged_spans()}
+        report["injection_flagged_spans"] = [
+            {
+                "span": span.id,
+                "ref": span.ref,
+                "kind": span.kind,
+                "findings": span.injection_findings[:2],
+            }
+            for span in ctx.ledger.flagged_spans()
+        ]
+        if flagged:
+            ctx.ledger.add_open_question(
+                f"{len(flagged)} retrieved span(s) contain instruction-shaped text. They were "
+                "treated as data and never obeyed, but check what they say before citing them.",
+                agent=self.name,
+            )
 
         for span in ctx.ledger.spans.values():
             report["citations_checked"] += 1
@@ -636,6 +659,21 @@ class CriticAgent(Agent):
                 )
 
         for claim in ctx.ledger.claims.values():
+            # WP-04: a claim standing only on instruction-shaped evidence is not
+            # allowed to pass silently, whatever it says.
+            if claim.support and flagged and set(claim.support) <= flagged:
+                report["claims_from_flagged_spans"].append(claim.id)
+                ctx.ledger.set_claim_status(
+                    claim.id,
+                    "disputed",
+                    note=(
+                        "Every supporting span for this claim contains instruction-shaped "
+                        "text. Treated as data, not followed — but the claim needs a human "
+                        "to confirm it reflects the source rather than an injection."
+                    ),
+                    agent=self.name,
+                )
+
             if not claim.support and claim.status not in ("refuted",):
                 report["claims_without_support"].append(claim.id)
                 ctx.ledger.set_claim_status(
@@ -687,8 +725,16 @@ class CriticAgent(Agent):
 
         report["verdict"] = (
             "blocked"
-            if report["citations_failed"] or report["scripture_violations"]
-            else ("qualified" if report["claims_without_support"] or report["counter_examples_found"] else "clear")
+            if report["citations_failed"]
+            or report["scripture_violations"]
+            or report["claims_from_flagged_spans"]
+            else (
+                "qualified"
+                if report["claims_without_support"]
+                or report["counter_examples_found"]
+                or report["injection_flagged_spans"]
+                else "clear"
+            )
         )
         ctx.ledger.critic_report = report
         ctx.ledger.log(self.name, "critique", **{k: v for k, v in report.items() if not isinstance(v, list)})

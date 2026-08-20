@@ -50,6 +50,27 @@ class Settings(BaseSettings):
     embedding_base_url: str | None = None
     embedding_api_key: str | None = None
 
+    # --- Identity and secrets (WP-01, WP-12) --------------------------------
+    # Auth is enabled by the presence of a JWT secret. A deployment without one
+    # runs open — fine on a laptop, never fine on a shared server — and
+    # /meta/capabilities reports which mode is live.
+    jwt_secret: str | None = None
+    jwt_ttl_seconds: int = 12 * 3600
+    # Master key for envelope-encrypting provider keys at rest.
+    secret_key: str | None = None
+    oidc_issuer: str | None = None
+    oidc_audience: str | None = None
+    # Requests per minute, per principal. 0 disables.
+    rate_limit_per_minute: int = 240
+
+    # --- Cost governance (WP-05) --------------------------------------------
+    default_run_cost_ceiling_usd: float = 2.0
+    default_monthly_token_budget: int | None = None
+
+    # --- Caching (WP-06) ----------------------------------------------------
+    cache_enabled: bool = True
+    cache_ttl_seconds: int = 30 * 24 * 3600
+
     # --- Observability ------------------------------------------------------
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None

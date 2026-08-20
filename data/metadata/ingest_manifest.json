@@ -1,0 +1,16 @@
+{
+  "hadith:hadith-abudawud": "da55afe7f372a803f4c484da2982c440c62a8b3d891d3cc50a687606a56b9884",
+  "hadith:hadith-bukhari": "9d2e4194786c275f64f627c834711ea0e339a8fe226d5e9569ef962595a562f1",
+  "hadith:hadith-ibnmajah": "6c5d2abcabb0c880ae09cb3f03f1f716c166a14b89d5243bc04ad65e1023119d",
+  "hadith:hadith-muslim": "12e3cbe8e2c83acc787b3e1e644877eff0feab11f1b32493386c60703d9076ae",
+  "hadith:hadith-nasai": "d32d122202ab17af5f12b91b2b3737b1e208d9feff3e92effd027f10da56befe",
+  "hadith:hadith-tirmidhi": "9ba6da92af6b0db9768c67f4c562c24bbbdb7be83509a78c40994c6d93366437",
+  "morphology": "742bfac59941b2cb09736d5b7aae694af50792261fb8450cbf6afafcc340645f",
+  "quran:metadata": "99c654caeea7c63bf9634703167ea0f806d90c55f98d23e2e82d3e3d1b74075c",
+  "quran:quran-imlaei": "e430798cdda553f703b54f5601835bbbd8e9a81dce3db42c7e6f09314a4ec3cb",
+  "quran:quran-uthmani": "66dadae2f7c7bb762aaf77603489951da4fe555fcee9f0106bfddae860e89cb4",
+  "translation:en-pickthall": "aaff752d4349005282d977eebb86398279330c8df8736d4528a7afe80dd9ce66",
+  "translation:en-yusufali": "cf37ea594c999d6f00e10c295f72994a4b672f03fc6aa6cabf60eb2ce6d47af0",
+  "translation:ur-jalandhry": "48ba38d004f990c27cb15743b87ebdaa775ebd2f1bf5d70ada89d825b4b739e9",
+  "translation:ur-junagarhi": "a7e464690956212f8635080f73c553cb47252b08bc4250499661c34f5291914f"
+}

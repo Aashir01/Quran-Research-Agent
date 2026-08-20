@@ -134,6 +134,50 @@ def cmd_search(args) -> int:
     return 0
 
 
+def cmd_verify_ingest(args) -> int:
+    """Ingest determinism check (WP-07).
+
+    Every ingest step records the SHA-256 of the payload it consumed. This
+    compares the live log against the committed manifest, so a source that
+    changed upstream — or a pipeline that changed behaviour — is caught before
+    anyone builds a finding on it.
+    """
+    from sqlalchemy import select as _select
+
+    from qra.models import IngestLog
+
+    manifest_path = Path(sources.settings.metadata_dir) / "ingest_manifest.json"
+    with session_scope() as session:
+        rows = session.scalars(_select(IngestLog).order_by(IngestLog.id)).all()
+        live = {}
+        for row in rows:
+            if row.checksum:
+                live[row.step] = row.checksum
+
+    if args.record:
+        manifest_path.write_text(json.dumps(live, indent=2, sort_keys=True), encoding="utf-8")
+        print(f"recorded {len(live)} checksums to {manifest_path}")
+        return 0
+
+    if not manifest_path.exists():
+        print(f"no manifest at {manifest_path}; run `qra verify-ingest --record` first")
+        return 1
+
+    recorded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    drift = {
+        step: {"recorded": recorded.get(step), "live": live.get(step)}
+        for step in set(recorded) | set(live)
+        if recorded.get(step) != live.get(step)
+    }
+    for step, pair in sorted(drift.items()):
+        print(f"  DRIFT {step}: recorded {pair['recorded']} != live {pair['live']}")
+    if drift:
+        print(f"\n{len(drift)} source(s) differ from the manifest.")
+        return 1
+    print(f"{len(recorded)} source checksums match the manifest")
+    return 0
+
+
 def cmd_eval(args) -> int:
     """Run the golden eval set. Exit code 1 on any ground-truth failure."""
     from qra.eval import render_report, run_eval
@@ -220,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--reload", action="store_true")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("verify-ingest", help="check source checksums against the manifest")
+    p.add_argument("--record", action="store_true", help="write the current checksums as the manifest")
+    p.set_defaults(func=cmd_verify_ingest)
 
     p = sub.add_parser("eval", help="run the golden eval set")
     p.add_argument("--tier", choices=["ground_truth", "regression"], help="restrict to one tier")

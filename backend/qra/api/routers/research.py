@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from qra.agents.graph import LANGGRAPH_AVAILABLE, run_research
 from qra.agents.llm import status as llm_status
 from qra.agents.render import render
+from qra.api.deps import needs
 from qra.db import get_session
 from qra.jobs import enqueue, job_status
 from qra.models import Finding, ResearchRun
@@ -22,7 +23,7 @@ def start_run(
     question: str = Body(..., embed=True),
     language: str = Body("en", embed=True),
     background: bool = Body(True, embed=True),
-    author_id: int | None = Body(None, embed=True),
+    principal=needs("researcher"),
     session: Session = Depends(get_session),
 ) -> dict:
     """Start a multi-agent run. Long runs are queued; short ones can be inline."""
@@ -30,10 +31,12 @@ def start_run(
     if background:
         job = enqueue(
             "research",
-            lambda s: run_research(s, question, language=language, author_id=author_id),
+            lambda s: run_research(
+                s, question, language=language, author_id=principal.user_id
+            ),
         )
         return {"job": job, "prior_work": prior}
-    result = run_research(session, question, language=language, author_id=author_id)
+    result = run_research(session, question, language=language, author_id=principal.user_id)
     return {"result": result, "prior_work": prior}
 
 
@@ -127,21 +130,31 @@ def submit(finding_id: int, session: Session = Depends(get_session)) -> dict:
 
 
 @router.get("/review-queue")
-def queue(status: str = "submitted", session: Session = Depends(get_session)) -> list[dict]:
+def queue(
+    status: str = "submitted",
+    principal=needs("reviewer"),
+    session: Session = Depends(get_session),
+) -> list[dict]:
     return review_queue(session, status=status)
 
 
 @router.post("/findings/{finding_id}/review")
 def review(
     finding_id: int,
-    reviewer_id: int = Body(..., embed=True),
     approve: bool = Body(..., embed=True),
     notes: str | None = Body(None, embed=True),
+    principal=needs("reviewer"),
     session: Session = Depends(get_session),
 ) -> dict:
+    """Reviewer role required, and never your own finding."""
     try:
         payload = review_finding(
-            session, finding_id, reviewer_id=reviewer_id, approve=approve, notes=notes
+            session,
+            finding_id,
+            reviewer_id=principal.user_id,
+            approve=approve,
+            notes=notes,
+            principal=principal,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
