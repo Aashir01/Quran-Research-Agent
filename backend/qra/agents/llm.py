@@ -1,8 +1,12 @@
-"""Model access, two tiers, provider-agnostic.
+"""Model access for agents.
 
-* ``reasoning`` — Planner and Critic. The expensive, careful tier.
-* ``fast`` — extraction, classification, summarisation. Cheap; runs happily on a
-  local Ollama box, which is where the cost savings live.
+A thin façade over :mod:`qra.ai.router`. Agents ask for a **role** — ``planner``,
+``critic``, ``scribe``, ``hadith`` — and the router decides which provider serves
+it, walks the fallback chain, and records every attempt. Nothing in this module
+names a model; ``config/models.yaml`` does.
+
+The legacy tier names ``reasoning`` and ``fast`` still work, so call sites that
+predate the routing layer did not have to change.
 
 If nothing is configured, :func:`get_llm` raises :class:`LLMUnavailable` and
 every agent falls back to its deterministic path. That is a supported mode, not
@@ -14,112 +18,119 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from contextvars import ContextVar
 from typing import Any
 
-import httpx
-
-from qra.config import settings
+from qra.ai import registry
+from qra.ai.probe import reachable
+from qra.ai.router import NoModelAvailable, Router
 
 
 class LLMUnavailable(RuntimeError):
-    pass
+    """No model could serve this role. The caller goes deterministic."""
 
 
-@dataclass
+# A run installs its own router so cost, cache and the attempt log are per-run.
+_ROUTER: ContextVar[Router | None] = ContextVar("qra_router", default=None)
+
+
+def set_router(router: Router | None) -> None:
+    _ROUTER.set(router)
+
+
+def current_router() -> Router:
+    router = _ROUTER.get()
+    if router is None:
+        router = Router()
+        _ROUTER.set(router)
+    return router
+
+
 class LLM:
-    provider: str
-    model: str
-    api_key: str | None = None
-    base_url: str | None = None
-    temperature: float = 0.0
+    """One role's view of the router. ``complete`` and ``json``, nothing else."""
+
+    def __init__(self, role: str, router: Router | None = None):
+        self.role = role
+        self.router = router or current_router()
+
+    @property
+    def provider(self) -> str | None:
+        return self.router.served.get(self.role)
 
     def complete(self, *, system: str, user: str, max_tokens: int = 1500) -> str:
-        if self.provider == "anthropic":
-            return self._anthropic(system, user, max_tokens)
-        if self.provider == "ollama":
-            return self._ollama(system, user, max_tokens)
-        raise LLMUnavailable(f"unknown provider {self.provider}")
+        try:
+            return self.router.chat(
+                self.role, system=system, user=user, max_tokens=max_tokens
+            ).text
+        except NoModelAvailable as exc:
+            raise LLMUnavailable(str(exc)) from exc
 
-    def json(self, *, system: str, user: str, max_tokens: int = 1500) -> Any:
-        raw = self.complete(system=system, user=user, max_tokens=max_tokens)
+    def json(
+        self, *, system: str, user: str, max_tokens: int = 1500, schema: dict | None = None
+    ) -> Any:
+        """Structured output. With a schema the provider enforces or repairs it;
+        without one we parse, which is what the older call sites do."""
+        try:
+            if schema is not None:
+                return self.router.chat_json(
+                    self.role, system=system, user=user, schema=schema, max_tokens=max_tokens
+                )
+            raw = self.router.chat(
+                self.role, system=system, user=user, max_tokens=max_tokens
+            ).text
+        except NoModelAvailable as exc:
+            raise LLMUnavailable(str(exc)) from exc
         match = re.search(r"[\{\[].*[\}\]]", raw, re.S)
         if not match:
             raise ValueError(f"model did not return JSON: {raw[:200]}")
         return json.loads(match.group(0))
 
-    def _anthropic(self, system: str, user: str, max_tokens: int) -> str:
-        with httpx.Client(timeout=180.0) as client:
-            response = client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": self.api_key or "",
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": self.model,
-                    "max_tokens": max_tokens,
-                    "temperature": self.temperature,
-                    "system": system,
-                    "messages": [{"role": "user", "content": user}],
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-        return "".join(block.get("text", "") for block in payload.get("content", []))
 
-    def _ollama(self, system: str, user: str, max_tokens: int) -> str:
-        with httpx.Client(timeout=300.0) as client:
-            response = client.post(
-                f"{(self.base_url or 'http://localhost:11434').rstrip('/')}/api/chat",
-                json={
-                    "model": self.model,
-                    "stream": False,
-                    "options": {"temperature": self.temperature, "num_predict": max_tokens},
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                },
-            )
-            response.raise_for_status()
-            return response.json().get("message", {}).get("content", "")
+def get_llm(role: str = "reasoning", router: Router | None = None, *, probe: bool = False) -> LLM:
+    """Return a model for a role, or raise if the chain has no reachable link."""
+    active = router or current_router()
+    if not active.plan(role, probe_local=probe)[:-1]:  # the last entry is `deterministic`
+        raise LLMUnavailable(
+            f"no provider configured for role {role!r}. Set a key for any provider in "
+            "config/models.yaml (or run Ollama locally). Retrieval, counting and "
+            "hypothesis testing do not require one."
+        )
+    return LLM(role, active)
 
 
-def get_llm(tier: str = "reasoning") -> LLM:
-    """Return the model for a tier, or raise if none is configured."""
-    model = settings.reasoning_model if tier == "reasoning" else settings.fast_model
-    if settings.anthropic_api_key:
-        return LLM(provider="anthropic", model=model, api_key=settings.anthropic_api_key)
-    if settings.ollama_base_url:
-        # The local tier serves both roles when it is all that is available.
-        return LLM(provider="ollama", model=model, base_url=settings.ollama_base_url)
-    raise LLMUnavailable(
-        "No model configured. Set QRA_ANTHROPIC_API_KEY or QRA_OLLAMA_BASE_URL. "
-        "Retrieval, counting and hypothesis testing do not require one."
-    )
-
-
-def available() -> bool:
+def available(role: str = "reasoning") -> bool:
+    """Probes local providers: a configured-but-not-running Ollama is not
+    availability, and reporting it as such is the kind of small lie that makes
+    the rest of the system's claims worth less."""
     try:
-        get_llm()
+        get_llm(role, probe=True)
     except LLMUnavailable:
         return False
     return True
 
 
 def status() -> dict:
+    router = current_router()
+    roles = sorted(registry.routing_policy())
     return {
         "available": available(),
-        "reasoning_model": settings.reasoning_model,
-        "fast_model": settings.fast_model,
-        "provider": "anthropic"
-        if settings.anthropic_api_key
-        else ("ollama" if settings.ollama_base_url else None),
+        "registry": str(registry.REGISTRY_PATH),
+        "providers_configured": sorted(
+            {
+                s.provider
+                for kind in ("chat", "embedding", "rerank", "transcription")
+                for s in registry.specs(kind)
+                if reachable(s)
+            }
+        ),
+        "roles": {
+            role: [c["provider"] for c in router.plan(role, probe_local=True)] for role in roles
+        },
         "note": (
             "Agents degrade to deterministic behaviour when no model is configured: "
-            "they still retrieve, count, test hypotheses and verify citations."
+            "they still retrieve, count, test hypotheses and verify citations. Every "
+            "fallback chain ends in `deterministic` rather than a weaker model — a "
+            "silently-degraded Critic is worse than an absent one."
         ),
     }
 

@@ -14,12 +14,12 @@ is milliseconds, so the extension is an optimisation, never a requirement.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
-import httpx
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
+from qra.ai.base import ProviderUnavailable
+from qra.ai.rerank_guard import ExhaustiveResultError, as_ranked, rerank_spans
 from qra.config import settings
 from qra.models import Embedding, SearchDoc
 from qra.retrieval.base import CorpusFilter, Span
@@ -30,57 +30,35 @@ class SemanticUnavailable(RuntimeError):
     """Raised when semantic search is requested but no provider is configured."""
 
 
-@dataclass
-class EmbeddingProvider:
-    """Thin adapter over an embedding endpoint.
+def embedder():
+    """The configured embedding adapter, or an honest refusal.
 
-    ``ollama`` targets a local box (BGE-M3 or multilingual-e5 — both put Arabic,
-    Urdu and English in one space, which is the requirement here);
-    ``openai_compatible`` targets any ``/v1/embeddings`` service.
+    Which provider serves this is registry policy (WP-14), not a hardcoded
+    client: ``QRA_EMBEDDING_PROVIDER`` names a block in ``config/models.yaml``
+    and :mod:`qra.ai.adapters` supplies the wire protocol. Local providers are
+    preferred when the setting is absent-but-permissive because embedding sends
+    the *whole* text to whoever serves it.
     """
-
-    provider: str
-    model: str
-    base_url: str
-    api_key: str | None = None
-    dim: int = 1024
-
-    @classmethod
-    def from_settings(cls) -> EmbeddingProvider:
-        if not settings.semantic_enabled:
-            raise SemanticUnavailable(
-                "Semantic retrieval is not configured. Set QRA_EMBEDDING_PROVIDER "
-                "(ollama|openai_compatible), QRA_EMBEDDING_MODEL and QRA_EMBEDDING_BASE_URL. "
-                "Deterministic and lexical retrieval work without it."
-            )
-        base = settings.embedding_base_url or settings.ollama_base_url or "http://localhost:11434"
-        return cls(
-            provider=settings.embedding_provider,
-            model=settings.embedding_model,
-            base_url=base.rstrip("/"),
-            api_key=settings.embedding_api_key,
-            dim=settings.embedding_dim,
+    if not settings.semantic_enabled:
+        raise SemanticUnavailable(
+            "Semantic retrieval is not configured. Set QRA_EMBEDDING_PROVIDER to a provider "
+            "in config/models.yaml (bge_m3_local, ollama, openai, voyage, cohere, google, jina). "
+            "Deterministic and lexical retrieval work without it."
         )
+    from qra.ai import registry
+    from qra.ai.adapters import build
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        if self.provider == "ollama":
-            out = []
-            with httpx.Client(timeout=120.0) as client:
-                for text in texts:
-                    response = client.post(
-                        f"{self.base_url}/api/embeddings",
-                        json={"model": self.model, "prompt": text},
-                    )
-                    response.raise_for_status()
-                    out.append(response.json()["embedding"])
-            return out
-        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        with httpx.Client(timeout=120.0, headers=headers) as client:
-            response = client.post(
-                f"{self.base_url}/v1/embeddings", json={"model": self.model, "input": texts}
-            )
-            response.raise_for_status()
-            return [item["embedding"] for item in response.json()["data"]]
+    spec = registry.find("embedding", settings.embedding_provider, settings.embedding_model)
+    if spec is None:
+        available = ", ".join(registry.providers("embedding"))
+        raise SemanticUnavailable(
+            f"embedding provider {settings.embedding_provider!r} is not in the registry "
+            f"(have: {available})"
+        )
+    try:
+        return build(spec)
+    except ProviderUnavailable as exc:
+        raise SemanticUnavailable(str(exc)) from exc
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -93,23 +71,24 @@ def _cosine(a: list[float], b: list[float]) -> float:
 def build_embeddings(
     session: Session, *, kinds: tuple[str, ...] = ("ayah",), batch_size: int = 32
 ) -> dict:
-    provider = EmbeddingProvider.from_settings()
+    provider = embedder()
+    model_id = provider.spec.id
     docs = session.scalars(select(SearchDoc).where(SearchDoc.kind.in_(kinds))).all()
     session.execute(
         delete(Embedding).where(
-            Embedding.doc_id.in_([d.id for d in docs]), Embedding.model == provider.model
+            Embedding.doc_id.in_([d.id for d in docs]), Embedding.model == model_id
         )
     )
     written = 0
     for offset in range(0, len(docs), batch_size):
         batch = docs[offset : offset + batch_size]
-        vectors = provider.embed([d.text for d in batch])
+        vectors = provider.embed([d.text for d in batch]).vectors
         session.execute(
             insert(Embedding),
             [
                 {
                     "doc_id": doc.id,
-                    "model": provider.model,
+                    "model": model_id,
                     "dim": len(vector),
                     "vector": vector,
                 }
@@ -118,7 +97,7 @@ def build_embeddings(
         )
         written += len(batch)
         session.commit()
-    return {"model": provider.model, "docs": written}
+    return {"model": model_id, "provider": provider.spec.provider, "docs": written}
 
 
 def search_semantic(
@@ -135,17 +114,18 @@ def search_semantic(
     Exhaustive over the vector store rather than ANN-approximate — again,
     because the corpus is small enough that approximation buys nothing.
     """
-    provider = EmbeddingProvider.from_settings()
-    (query_vector,) = provider.embed([query])
+    provider = embedder()
+    model_id = provider.spec.id
+    (query_vector,) = provider.embed([query]).vectors
 
     rows = session.execute(
         select(Embedding.doc_id, Embedding.vector, SearchDoc.kind, SearchDoc.ref_id, SearchDoc.ayah_id, SearchDoc.edition_id)
         .join(SearchDoc, SearchDoc.id == Embedding.doc_id)
-        .where(Embedding.model == provider.model, SearchDoc.kind.in_(kinds))
+        .where(Embedding.model == model_id, SearchDoc.kind.in_(kinds))
     ).all()
     if not rows:
         raise SemanticUnavailable(
-            f"No embeddings stored for model {provider.model}. Run `qra embed` first."
+            f"No embeddings stored for model {model_id}. Run `qra embed` first."
         )
 
     scored = [
@@ -173,23 +153,59 @@ def search_semantic(
     return spans[:limit]
 
 
-def rerank(query: str, spans: list[Span], *, top_k: int = 10) -> list[Span]:
-    """Cross-encoder rerank hook.
+def rerank(query: str, spans: list[Span], *, top_k: int = 10, router=None) -> list[Span]:
+    """Cross-encoder rerank over *ranked* spans (WP-15).
 
-    Left as an explicit no-op with a marker rather than a fake implementation:
-    when you wire a reranker (bge-reranker-v2-m3 on the local box is the obvious
-    choice), replace the body and the marker disappears from results.
+    Two rules are enforced rather than documented. Exhaustive spans are refused
+    outright by :func:`qra.ai.rerank_guard.as_ranked` — reordering "every
+    occurrence of this root" would falsify the claim attached to it, and a
+    ``top_k`` would drop members of a set the caller was told was complete. And
+    when no reranker is configured the spans come back untouched with
+    ``reranked: False`` on each, because a silent no-op that looks like a rerank
+    is how a pipeline starts lying about its own quality.
     """
-    for span in spans:
-        span.extra.setdefault("reranked", False)
-    return spans[:top_k]
+    if not spans:
+        return []
+    try:
+        ranked = as_ranked(spans)
+    except ExhaustiveResultError:
+        raise
+    from qra.ai.router import NoModelAvailable, Router
+
+    active = router or Router()
+    try:
+        provider = _rerank_provider(active)
+    except NoModelAvailable as exc:
+        for span in spans:
+            span.extra.setdefault("reranked", False)
+            span.extra.setdefault("rerank_unavailable", str(exc)[:200])
+        return spans[:top_k]
+    out = rerank_spans(query, ranked, provider=provider, top_k=top_k)
+    for span in out:
+        span.extra["reranked"] = True
+    return out
+
+
+def _rerank_provider(router):
+    """A rerank adapter, or :class:`NoModelAvailable`. Local models first: a
+    reranker sees the full text of every candidate, same as an embedder."""
+    from qra.ai.adapters import build
+    from qra.ai.router import NoModelAvailable, _kind_candidates
+
+    specs = _kind_candidates("rerank", key_resolver=router._key)
+    for spec in specs:
+        try:
+            return build(spec, api_key=router._key(spec.provider))
+        except ProviderUnavailable:
+            continue
+    raise NoModelAvailable("rerank", [])
 
 
 def status() -> dict:
     return {
         "enabled": settings.semantic_enabled,
         "provider": settings.embedding_provider,
-        "model": settings.embedding_model if settings.semantic_enabled else None,
+        "model": settings.embedding_model,
         "reason": None
         if settings.semantic_enabled
         else "QRA_EMBEDDING_PROVIDER not set; deterministic and lexical retrieval are unaffected",

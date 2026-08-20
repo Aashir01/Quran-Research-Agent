@@ -154,6 +154,48 @@ def traces(run_id: str | None = None) -> dict:
     return {"status": trace_status(), "runs": RECORDER.runs()}
 
 
+@router.get("/models")
+def models() -> dict:
+    """The model registry: what is configured, what is stale, what has a key.
+
+    No secret leaves this endpoint — ``has_credential`` is a boolean, never a
+    fingerprint or a prefix.
+    """
+    from qra.ai import registry
+    from qra.ai.adapters import coverage
+
+    audit = registry.audit()
+    audit["adapter_coverage"] = coverage()
+    return audit
+
+
+@router.get("/routing")
+def routing(principal=CurrentUser, session: Session = Depends(get_session)) -> dict:
+    """Which provider chain serves which agent role, for this principal.
+
+    Includes the caller's own stored keys (WP-12), so a researcher can see that
+    *their* key is what would be used rather than the deployment's.
+    """
+    from qra.ai import registry
+    from qra.ai.router import Router, key_resolver_for
+
+    router_ = Router(
+        key_resolver=key_resolver_for(session, principal) if principal else None
+    )
+    return {
+        "roles": {
+            role: router_.plan(role, probe_local=True)
+            for role in sorted(registry.routing_policy())
+        },
+        "chains": registry.fallback_chains(),
+        "note": (
+            "Every chain ends in `deterministic`. When it gets there the run still "
+            "returns retrieval, counts, hypothesis verdicts and citation verification; "
+            "only the prose draft is withheld, marked `undrafted` rather than invented."
+        ),
+    }
+
+
 @router.get("/capabilities")
 def capabilities() -> dict:
     """What is on, what is off, and why — so the UI never has to guess."""
@@ -165,6 +207,10 @@ def capabilities() -> dict:
             "graph": {"enabled": True, "exhaustive": True},
         },
         "agents": llm_status(),
+        "rerank": {
+            "enabled": True,
+            "refuses": "exhaustive result sets — reordering them would falsify the count",
+        },
         "observability": __import__("qra.observability", fromlist=["status"]).status(),
         "hard_rules": [
             "Scripture, translations and hadith matn are rendered from the database by id.",

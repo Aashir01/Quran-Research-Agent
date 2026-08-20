@@ -44,6 +44,29 @@ jobs:
         if: matrix.model_key
         run: echo "QRA_ANTHROPIC_API_KEY=sk-ci-not-a-real-key" >> $GITHUB_ENV
 
+      - name: Model registry — every entry has an adapter, every chain ends deterministic
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          from qra.ai import registry
+          from qra.ai.adapters import coverage
+
+          report = coverage()
+          assert not report["missing"], f"registry entries with no adapter: {report['missing']}"
+
+          for tier, chain in registry.fallback_chains().items():
+              assert chain[-1] == "deterministic", f"{tier} chain ends in {chain[-1]!r}"
+
+          audit = registry.audit()
+          # Staleness is reported, never fatal: failing a build because a date
+          # rolled over would take a working system down for bookkeeping.
+          if audit["stale"]:
+              print(f"::warning::{len(audit['stale'])} model ids are past their verified_on date")
+              for row in audit["stale"]:
+                  print(f"  {row['provider']}/{row['id']} verified {row['verified_on']}")
+          print(f"{report['covered']} models, all with adapters; {audit['models']} registry entries")
+          PY
+
       - name: Migrations produce the same schema as initdb
         working-directory: backend
         run: |

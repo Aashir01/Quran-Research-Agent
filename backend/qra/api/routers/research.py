@@ -32,11 +32,14 @@ def start_run(
         job = enqueue(
             "research",
             lambda s: run_research(
-                s, question, language=language, author_id=principal.user_id
+                s, question, language=language, author_id=principal.user_id,
+                principal=principal,
             ),
         )
         return {"job": job, "prior_work": prior}
-    result = run_research(session, question, language=language, author_id=principal.user_id)
+    result = run_research(
+        session, question, language=language, author_id=principal.user_id, principal=principal
+    )
     return {"result": result, "prior_work": prior}
 
 
@@ -69,6 +72,7 @@ def get_run(run_id: str, session: Session = Depends(get_session)) -> dict:
         "question": run.question,
         "status": run.status,
         "draft_template": run.output,
+        "draft_mode": ledger.get("draft_mode", "undrafted"),
         "output": rendered.text,
         "citations": rendered.citations,
         "critic_report": ledger.get("critic_report"),

@@ -1,0 +1,259 @@
+# Model registry (WP-09).
+#
+# Model ids live here, not in code, because they change faster than this
+# codebase will. Every entry carries `verified_on`: the date someone confirmed
+# the id was live. An entry whose date is stale is a prompt to check, not a
+# reason to fail — the router logs the age and carries on.
+#
+# Prices are USD per million tokens and feed the cost ceiling in qra/budget.py.
+
+version: 1
+verified_on: 2026-08-20
+
+chat:
+  anthropic:
+    env_key: QRA_ANTHROPIC_API_KEY
+    base_url: https://api.anthropic.com
+    models:
+      - id: claude-opus-5
+        tier: reasoning
+        context: 200000
+        structured_output: native
+        price_in: 15.0
+        price_out: 75.0
+        verified_on: 2026-08-20
+      - id: claude-sonnet-5
+        tier: balanced
+        context: 200000
+        structured_output: native
+        price_in: 3.0
+        price_out: 15.0
+        verified_on: 2026-08-20
+      - id: claude-haiku-4-5-20251001
+        tier: fast
+        context: 200000
+        structured_output: native
+        price_in: 1.0
+        price_out: 5.0
+        verified_on: 2026-08-20
+  openai:
+    env_key: QRA_OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    api: openai
+    models:
+      - {id: gpt-5, tier: reasoning, context: 400000, structured_output: native, price_in: 10.0, price_out: 30.0, verified_on: 2026-08-20}
+      - {id: gpt-5-mini, tier: fast, context: 400000, structured_output: native, price_in: 0.6, price_out: 2.4, verified_on: 2026-08-20}
+  google:
+    env_key: QRA_GOOGLE_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    api: google
+    models:
+      - {id: gemini-2.5-pro, tier: reasoning, context: 1000000, structured_output: native, price_in: 2.5, price_out: 10.0, verified_on: 2026-08-20}
+      - {id: gemini-2.5-flash, tier: fast, context: 1000000, structured_output: native, price_in: 0.3, price_out: 1.2, verified_on: 2026-08-20}
+  mistral:
+    env_key: QRA_MISTRAL_API_KEY
+    base_url: https://api.mistral.ai/v1
+    api: openai
+    models:
+      - {id: mistral-large-latest, tier: reasoning, context: 128000, structured_output: json_mode, price_in: 2.0, price_out: 6.0, verified_on: 2026-08-20}
+  deepseek:
+    env_key: QRA_DEEPSEEK_API_KEY
+    base_url: https://api.deepseek.com/v1
+    api: openai
+    models:
+      - {id: deepseek-chat, tier: balanced, context: 128000, structured_output: json_mode, price_in: 0.27, price_out: 1.1, verified_on: 2026-08-20}
+      - {id: deepseek-reasoner, tier: reasoning, context: 128000, structured_output: json_mode, price_in: 0.55, price_out: 2.19, verified_on: 2026-08-20}
+  groq:
+    env_key: QRA_GROQ_API_KEY
+    base_url: https://api.groq.com/openai/v1
+    api: openai
+    models:
+      - {id: llama-3.3-70b-versatile, tier: fast, context: 128000, structured_output: json_mode, price_in: 0.59, price_out: 0.79, verified_on: 2026-08-20}
+  xai:
+    env_key: QRA_XAI_API_KEY
+    base_url: https://api.x.ai/v1
+    api: openai
+    models:
+      - {id: grok-4, tier: reasoning, context: 256000, structured_output: json_mode, price_in: 3.0, price_out: 15.0, verified_on: 2026-08-20}
+  together:
+    env_key: QRA_TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    api: openai
+    models:
+      - {id: Qwen/Qwen2.5-72B-Instruct-Turbo, tier: balanced, context: 32000, structured_output: json_mode, price_in: 1.2, price_out: 1.2, verified_on: 2026-08-20}
+  fireworks:
+    env_key: QRA_FIREWORKS_API_KEY
+    base_url: https://api.fireworks.ai/inference/v1
+    api: openai
+    models:
+      - {id: accounts/fireworks/models/llama-v3p3-70b-instruct, tier: fast, context: 128000, structured_output: json_mode, price_in: 0.9, price_out: 0.9, verified_on: 2026-08-20}
+  openrouter:
+    env_key: QRA_OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+    api: openai
+    models:
+      - {id: anthropic/claude-opus-5, tier: reasoning, context: 200000, structured_output: native, price_in: 15.0, price_out: 75.0, verified_on: 2026-08-20}
+  azure_openai:
+    env_key: QRA_AZURE_OPENAI_API_KEY
+    # base_url is per-deployment: https://<resource>.openai.azure.com/openai/deployments/<deployment>
+    base_url: null
+    api: azure
+    models:
+      - {id: gpt-5, tier: reasoning, context: 400000, structured_output: native, price_in: 10.0, price_out: 30.0, verified_on: 2026-08-20}
+  bedrock:
+    env_key: AWS_ACCESS_KEY_ID
+    api: bedrock
+    region: us-east-1
+    models:
+      - {id: anthropic.claude-opus-5-v1:0, tier: reasoning, context: 200000, structured_output: native, price_in: 15.0, price_out: 75.0, verified_on: 2026-08-20}
+  vertex:
+    env_key: GOOGLE_APPLICATION_CREDENTIALS
+    api: vertex
+    models:
+      - {id: gemini-2.5-pro, tier: reasoning, context: 1000000, structured_output: native, price_in: 2.5, price_out: 10.0, verified_on: 2026-08-20}
+  ollama:
+    base_url: http://localhost:11434
+    api: ollama
+    local: true
+    models:
+      - {id: qwen2.5:32b, tier: balanced, context: 32000, structured_output: json_mode, price_in: 0.0, price_out: 0.0, verified_on: 2026-08-20}
+      - {id: llama3.3:70b, tier: reasoning, context: 128000, structured_output: json_mode, price_in: 0.0, price_out: 0.0, verified_on: 2026-08-20}
+      - {id: qwen2.5:7b, tier: fast, context: 32000, structured_output: json_mode, price_in: 0.0, price_out: 0.0, verified_on: 2026-08-20}
+  vllm:
+    base_url: http://localhost:8000/v1
+    api: openai
+    local: true
+    models:
+      - {id: local-model, tier: balanced, context: 32000, structured_output: json_mode, price_in: 0.0, price_out: 0.0, verified_on: 2026-08-20}
+  llamacpp:
+    base_url: http://localhost:8080/v1
+    api: openai
+    local: true
+    models:
+      - {id: local-gguf, tier: fast, context: 8192, structured_output: none, price_in: 0.0, price_out: 0.0, verified_on: 2026-08-20}
+
+embedding:
+  bge_m3_local:
+    api: sentence_transformers
+    local: true
+    models:
+      - {id: BAAI/bge-m3, dim: 1024, multilingual: true, verified_on: 2026-08-20}
+  e5_local:
+    api: sentence_transformers
+    local: true
+    models:
+      - {id: intfloat/multilingual-e5-large, dim: 1024, multilingual: true, verified_on: 2026-08-20}
+  ollama:
+    base_url: http://localhost:11434
+    api: ollama
+    local: true
+    models:
+      - {id: bge-m3, dim: 1024, multilingual: true, verified_on: 2026-08-20}
+  openai:
+    env_key: QRA_OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    api: openai
+    models:
+      - {id: text-embedding-3-large, dim: 3072, multilingual: true, price_in: 0.13, verified_on: 2026-08-20}
+  voyage:
+    env_key: QRA_VOYAGE_API_KEY
+    base_url: https://api.voyageai.com/v1
+    api: voyage
+    models:
+      - {id: voyage-3-large, dim: 1024, multilingual: true, price_in: 0.18, verified_on: 2026-08-20}
+  cohere:
+    env_key: QRA_COHERE_API_KEY
+    base_url: https://api.cohere.com/v2
+    api: cohere
+    models:
+      - {id: embed-multilingual-v3.0, dim: 1024, multilingual: true, price_in: 0.1, verified_on: 2026-08-20}
+  google:
+    env_key: QRA_GOOGLE_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    api: google
+    models:
+      - {id: text-embedding-004, dim: 768, multilingual: true, verified_on: 2026-08-20}
+  jina:
+    env_key: QRA_JINA_API_KEY
+    base_url: https://api.jina.ai/v1
+    api: openai
+    models:
+      - {id: jina-embeddings-v3, dim: 1024, multilingual: true, verified_on: 2026-08-20}
+
+rerank:
+  bge_reranker_local:
+    api: sentence_transformers
+    local: true
+    models:
+      - {id: BAAI/bge-reranker-v2-m3, multilingual: true, verified_on: 2026-08-20}
+  cross_encoder_local:
+    api: sentence_transformers
+    local: true
+    models:
+      - {id: cross-encoder/ms-marco-MiniLM-L-6-v2, multilingual: false, verified_on: 2026-08-20}
+  cohere:
+    env_key: QRA_COHERE_API_KEY
+    base_url: https://api.cohere.com/v2
+    api: cohere
+    models:
+      - {id: rerank-multilingual-v3.0, multilingual: true, price_in: 2.0, verified_on: 2026-08-20}
+  jina:
+    env_key: QRA_JINA_API_KEY
+    base_url: https://api.jina.ai/v1
+    api: jina
+    models:
+      - {id: jina-reranker-v2-base-multilingual, multilingual: true, verified_on: 2026-08-20}
+
+transcription:
+  whisper_local:
+    api: whisper
+    local: true
+    models:
+      - {id: large-v3, languages: [ur, ar, en], verified_on: 2026-08-20}
+  faster_whisper:
+    api: faster_whisper
+    local: true
+    models:
+      - {id: large-v3, languages: [ur, ar, en], verified_on: 2026-08-20}
+  openai:
+    env_key: QRA_OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    api: openai
+    models:
+      - {id: whisper-1, languages: [ur, ar, en], price_in: 6.0, verified_on: 2026-08-20}
+  deepgram:
+    env_key: QRA_DEEPGRAM_API_KEY
+    base_url: https://api.deepgram.com/v1
+    api: deepgram
+    models:
+      - {id: nova-3, languages: [ur, ar, en], verified_on: 2026-08-20}
+  elevenlabs:
+    env_key: QRA_ELEVENLABS_API_KEY
+    base_url: https://api.elevenlabs.io/v1
+    api: elevenlabs
+    models:
+      - {id: scribe-v1, languages: [ur, ar, en], verified_on: 2026-08-20}
+
+# WP-10: which model serves which agent role. Policy, not per-call-site choice.
+routing:
+  default_policy:
+    planner:   {tier: reasoning, needs: [long_context, structured_output]}
+    critic:    {tier: reasoning, needs: [structured_output], prefer_different_provider_than: scribe}
+    scribe:    {tier: balanced,  needs: [long_context]}
+    tafsir:    {tier: balanced,  needs: [arabic]}
+    lisan:     {tier: balanced,  needs: [arabic]}
+    nazm:      {tier: balanced}
+    hadith:    {tier: fast}
+    corpus:    {tier: fast}
+    pattern:   {tier: fast}
+    librarian: {tier: fast}
+    extraction: {tier: fast, needs: [structured_output]}
+    summarisation: {tier: fast}
+    classification: {tier: fast, needs: [structured_output]}
+  # WP-11: ordered fallback. The terminal entry is always `deterministic` —
+  # never a weaker model, because a silently-degraded Critic is worse than an
+  # absent one.
+  fallback_chains:
+    reasoning: [anthropic, openai, google, deepseek, ollama, deterministic]
+    balanced:  [anthropic, deepseek, google, ollama, deterministic]
+    fast:      [ollama, groq, anthropic, openai, deterministic]

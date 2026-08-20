@@ -177,18 +177,48 @@ def run_research(
     language: str = "en",
     run_id: str | None = None,
     author_id: int | None = None,
+    principal=None,
 ) -> dict:
     """Entry point used by the API and the background worker."""
-    graph = ResearchGraph(session)
-    ledger = graph.run(question, language=language, run_id=run_id, author_id=author_id)
+    import uuid
+
+    from qra.agents.llm import set_router
+    from qra.ai.router import Router, key_resolver_for
+    from qra.budget import budget_for, persist
+
+    # The id is minted here rather than inside the ledger so the budget, the
+    # router and the persisted run all agree on it from the first call.
+    run_id = run_id or uuid.uuid4().hex[:16]
+
+    # One router per run: it holds the cost ceiling, the cache handle and the
+    # attempt log, so "which model answered, and what did it cost" is a property
+    # of the run rather than of the process.
+    router = Router(
+        key_resolver=key_resolver_for(session, principal) if principal is not None else None,
+        session=session,
+        run_id=run_id,
+        budget=budget_for(session, run_id, principal=principal),
+    )
+    set_router(router)
+    try:
+        graph = ResearchGraph(session)
+        ledger = graph.run(question, language=language, run_id=run_id, author_id=author_id)
+    finally:
+        set_router(None)
     from qra.agents.render import render
 
     rendered = render(session, ledger.draft or "", strict=False)
+    try:
+        persist(session, router.budget, principal=principal)
+    except Exception:  # noqa: BLE001 - accounting must not fail a completed run
+        session.rollback()
+    routing = router.report()
     return {
         "run_id": ledger.run_id,
         "question": question,
         "summary": ledger.summary(),
         "draft_template": ledger.draft,
+        "draft_mode": ledger.draft_mode,
         "output": rendered.text,
         "citations": rendered.citations,
         "critic_report": ledger.critic_report,
@@ -196,4 +226,5 @@ def run_research(
         "disagreements": ledger.disagreements,
         "statistics": ledger.statistics,
         "orchestrator": "langgraph" if LANGGRAPH_AVAILABLE else "sequential",
+        "routing": routing,
     }

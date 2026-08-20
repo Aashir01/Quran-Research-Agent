@@ -14,6 +14,7 @@ dependencies = [
     "python-multipart>=0.0.12",
     "redis>=5.2",
     "arq>=0.26",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,12 @@ agents = [
 ]
 mcp = ["mcp>=1.1"]
 semantic = ["numpy>=2.0"]
+# Local embedding and rerank models. Optional on purpose: semantic retrieval is
+# off unless a provider is configured, and a disabled tier is honest.
+local-models = ["sentence-transformers>=3.3", "numpy>=2.0"]
+# Hosted-provider SDKs used only where the REST shape is not worth hand-rolling.
+cloud = ["boto3>=1.35", "google-auth>=2.35"]
+voice = ["faster-whisper>=1.1"]
 dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7"]
 
 [project.scripts]

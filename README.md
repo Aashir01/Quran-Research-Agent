@@ -138,12 +138,14 @@ backend/qra/
                        conditionals, mutashabihat, narrative
   agents/              ledger, render (the hard rule), llm, roles, graph
   tools.py             one implementation behind API, MCP and agents
+  ai/                  model registry, provider adapters, role routing
   api/                 FastAPI routers
   mcp/                 MCP server — same tools, three surfaces
   workspace/           anchored notes, hypothesis history, team layer
 frontend/              Next.js PWA, mobile-first, RTL + Nastaliq
 data/metadata/         revelation order, concepts, sample hypotheses
-docs/                  LICENSING.md, ARCHITECTURE.md
+config/models.yaml     every model id, price and routing policy — none in code
+docs/                  LICENSING.md, ARCHITECTURE.md, MODELS.md
 ```
 
 ---
@@ -154,6 +156,8 @@ docs/                  LICENSING.md, ARCHITECTURE.md
 * [`docs/LICENSING.md`](docs/LICENSING.md) — what ships, what does not, and why
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the layers, the build order,
   and what is deliberately left for later
+* [`docs/MODELS.md`](docs/MODELS.md) — the model registry, role routing, and why
+  every fallback chain ends in no model rather than a weaker one
 
 ## Licence
 

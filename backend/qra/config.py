@@ -32,23 +32,24 @@ class Settings(BaseSettings):
     allowed_license_status: set[str] = {"public_domain", "permissive"}
 
     # --- Models -------------------------------------------------------------
-    # Planner/Critic want a strong reasoning model; extraction/summarisation can
-    # run on a cheap local tier (e.g. an Ollama box).
-    reasoning_model: str = "claude-opus-5"
-    fast_model: str = "claude-haiku-4-5-20251001"
-    anthropic_api_key: str | None = None
-    ollama_base_url: str | None = None
+    # No model id appears here. Ids, prices, context windows and the role→model
+    # policy all live in ``config/models.yaml`` — see qra.ai.registry — because
+    # model names change far faster than this file does. Provider credentials
+    # are read from the env var each registry block names (QRA_ANTHROPIC_API_KEY,
+    # QRA_OPENAI_API_KEY, …), or supplied per-user through /auth/keys.
+    models_config: Path | None = None  # overrides config/models.yaml
     # Hard cap on agent turns so a runaway plan can't burn a budget.
     max_agent_steps: int = 40
 
     # --- Embeddings ---------------------------------------------------------
     # Semantic retrieval is optional and OFF unless an embedding provider is
-    # configured. A disabled semantic tier is honest; a fake one is not.
-    embedding_provider: str | None = None  # "ollama" | "openai_compatible" | None
-    embedding_model: str = "bge-m3"
-    embedding_dim: int = 1024
-    embedding_base_url: str | None = None
-    embedding_api_key: str | None = None
+    # named here. A disabled semantic tier is honest; a fake one is not. The
+    # value is a provider key from the `embedding:` block of models.yaml
+    # (bge_m3_local, ollama, openai, voyage, cohere, google, jina).
+    embedding_provider: str | None = None
+    # Optional: pin one of that provider's models. Unset means "the one the
+    # registry lists", which is the usual case since most blocks list one.
+    embedding_model: str | None = None
 
     # --- Identity and secrets (WP-01, WP-12) --------------------------------
     # Auth is enabled by the presence of a JWT secret. A deployment without one

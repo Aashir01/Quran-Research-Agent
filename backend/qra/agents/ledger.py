@@ -129,6 +129,8 @@ class EvidenceLedger:
         self.disagreements: list[dict] = []
         self.statistics: list[dict] = []
         self.draft: str | None = None
+        # "model" | "undrafted" | "undrafted_after_rejection" — set by the Scribe.
+        self.draft_mode: str = "undrafted"
         self.critic_report: dict | None = None
         # Arabic the system read from the database but that is not a whole span:
         # surface forms, root displays, particle forms. Recorded at the moment
@@ -243,6 +245,7 @@ class EvidenceLedger:
             "open_questions": self.open_questions,
             "events": [e.to_dict() for e in self.events],
             "draft": self.draft,
+            "draft_mode": self.draft_mode,
             "critic_report": self.critic_report,
             "verified_fragments": self.verified_fragments,
         }
@@ -262,6 +265,7 @@ class EvidenceLedger:
         ledger.open_questions = payload.get("open_questions", [])
         ledger.events = [AgentEvent(**e) for e in payload.get("events", [])]
         ledger.draft = payload.get("draft")
+        ledger.draft_mode = payload.get("draft_mode", "undrafted")
         ledger.critic_report = payload.get("critic_report")
         ledger.verified_fragments = payload.get("verified_fragments", [])
         return ledger

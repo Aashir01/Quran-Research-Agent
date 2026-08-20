@@ -140,7 +140,7 @@ class Planner(Agent):
 
     def _llm_plan(self, question: str, terms: list[dict]) -> dict | None:
         try:
-            llm = get_llm("reasoning")
+            llm = get_llm("planner")
         except LLMUnavailable:
             return None
         try:
@@ -809,23 +809,36 @@ class Scribe(Agent):
     def run(self, ctx: AgentContext, *, language: str | None = None, **kwargs) -> dict:
         language = language or ctx.ledger.language
         verified = ctx.ledger.verified_corpus_text()
-        draft = self._llm_draft(ctx, language) or self._deterministic_draft(ctx, language)
+        draft = self._llm_draft(ctx, language)
+        # `undrafted` is the honest word for what happens with no model: the
+        # findings, counts, verdicts and citations are all still here, assembled
+        # from the ledger. What is missing is prose, and saying so is the point —
+        # an answer that reads as finished but was never written is worse.
+        mode = "model" if draft else "undrafted"
+        draft = draft or self._deterministic_draft(ctx, language)
         rendered = render(ctx.session, draft, strict=True, verified=verified)
         if rendered.violations:
             # Rather than emit unverifiable scripture we fall back to the
             # deterministic draft, which can only contain database text.
             ctx.ledger.log(self.name, "draft_rejected", violations=rendered.violations[:3])
+            mode = "undrafted_after_rejection"
             draft = self._deterministic_draft(ctx, language)
             rendered = render(ctx.session, draft, strict=True, verified=verified)
         ctx.ledger.draft = draft
+        ctx.ledger.draft_mode = mode
         ctx.ledger.log(
-            self.name, "drafted", placeholders=rendered.placeholders_resolved, language=language
+            self.name,
+            "drafted",
+            placeholders=rendered.placeholders_resolved,
+            language=language,
+            draft_mode=mode,
         )
         return {
             "draft_template": draft,
             "rendered": rendered.text,
             "citations": rendered.citations,
             "violations": rendered.violations,
+            "draft_mode": mode,
         }
 
     def _deterministic_draft(self, ctx: AgentContext, language: str) -> str:
@@ -902,7 +915,7 @@ class Scribe(Agent):
 
     def _llm_draft(self, ctx: AgentContext, language: str) -> str | None:
         try:
-            llm = get_llm("reasoning")
+            llm = get_llm("scribe")
         except LLMUnavailable:
             return None
         ledger = ctx.ledger
