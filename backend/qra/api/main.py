@@ -21,6 +21,7 @@ from qra.api.routers import (
     search,
     workspace,
 )
+from qra.config import settings
 
 app = FastAPI(
     title="Quran Research Agent",
@@ -35,10 +36,21 @@ app = FastAPI(
 ops.configure_logging()
 ops.install(app)
 
+# The frontend is always a different origin from the API (3000 vs 8000 in
+# development, usually different hosts in production), so CORS is load-bearing
+# rather than incidental.
+#
+# `allow_origins=["*"]` together with `allow_credentials=True` is the trap here:
+# the CORS spec forbids that combination, so Starlette silently omits the header
+# and *every* cross-origin request fails. Auth travels as a Bearer header, not a
+# cookie, so credentials are not needed — a wildcard without them is both legal
+# and sufficient. Naming origins in QRA_CORS_ORIGINS switches on the stricter
+# mode, which is what a shared deployment should do.
+_origins = settings.cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_origins or ["*"],
+    allow_credentials=bool(_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )

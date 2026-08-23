@@ -274,6 +274,18 @@ export type PriorWork = {
 export type ResearchResult = {
   run_id?: string;
   output: string;
+  /**
+   * "model" when a model wrote the prose; "undrafted" when none was reachable.
+   * The findings, counts, verdicts and citations are present either way — the
+   * UI must say which of the two it is showing rather than let an undrafted
+   * answer pass as a drafted one.
+   */
+  draft_mode?: "model" | "undrafted" | "undrafted_after_rejection";
+  routing?: {
+    served: Record<string, string>;
+    failures: { role: string; provider: string; reason: string; detail?: string }[];
+    budget: { spent_usd: number; ceiling_usd: number; calls: number } | null;
+  };
   citations: Citation[];
   critic_report: {
     verdict: string;

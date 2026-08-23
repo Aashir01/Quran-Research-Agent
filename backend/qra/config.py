@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     oidc_audience: str | None = None
     # Requests per minute, per principal. 0 disables.
     rate_limit_per_minute: int = 240
+    # Browser origins allowed to call this API. Empty means "any origin, without
+    # credentials" — correct for a Bearer-token API and the only wildcard the
+    # CORS spec permits. Name origins here on a shared deployment.
+    cors_origins: list[str] = []
 
     # --- Cost governance (WP-05) --------------------------------------------
     default_run_cost_ceiling_usd: float = 2.0

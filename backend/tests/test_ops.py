@@ -148,3 +148,29 @@ def test_readiness_distinguishes_itself_from_liveness(session):
     payload = readiness(session)
     assert set(payload["checks"]) >= {"corpus", "morphology", "lexical_index"}
     assert payload["checks"]["corpus"]["expected"] == 6236
+
+
+def test_cors_header_is_actually_sent_cross_origin():
+    """The frontend is always a different origin from the API.
+
+    `allow_origins=["*"]` together with `allow_credentials=True` is forbidden by
+    the CORS spec, so Starlette silently omits the header and every browser
+    request fails while curl keeps working. This asserts the header a browser
+    actually needs, which is the only way that combination gets caught.
+    """
+    from fastapi.testclient import TestClient
+
+    from qra.api.main import app
+
+    client = TestClient(app)
+    response = client.options(
+        "/meta/capabilities",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.headers.get("access-control-allow-origin"), (
+        "no Access-Control-Allow-Origin on the preflight — every cross-origin "
+        "browser request will fail"
+    )

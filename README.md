@@ -143,6 +143,8 @@ backend/qra/
   mcp/                 MCP server — same tools, three surfaces
   workspace/           anchored notes, hypothesis history, team layer
 frontend/              Next.js PWA, mobile-first, RTL + Nastaliq
+  app/globals.css      the design system, in cascade layers
+  components/          shell, command palette, charts, domain primitives
 data/metadata/         revelation order, concepts, sample hypotheses
 config/models.yaml     every model id, price and routing policy — none in code
 docs/                  LICENSING.md, ARCHITECTURE.md, MODELS.md
@@ -158,6 +160,8 @@ docs/                  LICENSING.md, ARCHITECTURE.md, MODELS.md
   and what is deliberately left for later
 * [`docs/MODELS.md`](docs/MODELS.md) — the model registry, role routing, and why
   every fallback chain ends in no model rather than a weaker one
+* [`docs/DESIGN.md`](docs/DESIGN.md) — the interface: its tokens, the rules its
+  components enforce, and the RTL traps that are easy to regress
 
 ## Licence
 

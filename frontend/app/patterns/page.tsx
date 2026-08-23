@@ -1,46 +1,63 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { ErrorNote, Stat } from "@/components/primitives";
+import Link from "next/link";
+import { API_BASE, api } from "@/lib/api";
+import { AyahText, Stat } from "@/components/primitives";
+import { CountUp, EmptyState, ErrorNote, Notice, Segmented, Skeleton, Tip } from "@/components/ui";
+import { usePrefs } from "@/components/prefs";
 
 /**
  * The pattern engine, surfaced.
  *
  * Three views that are laborious by hand and cheap once the morphology is in a
- * database: the same narrative told across many surahs, the corpus's
- * conditional constructions as condition → consequence, and near-identical
- * verses with their deltas.
+ * database: the same narrative told across many surahs with its deltas, the
+ * corpus's conditional constructions as condition → consequence, and clusters
+ * of near-identical verses.
+ *
+ * Every view states its method on the view itself. A pattern with no stated
+ * method is a Rorschach test, and this corpus attracts enough of those.
  */
 type Tab = "narrative" | "conditionals" | "mutashabihat";
 
 export default function PatternsPage() {
   const [tab, setTab] = useState<Tab>("narrative");
+  const { t } = usePrefs();
+
   return (
     <>
-      <h1 style={{ marginBottom: 4 }}>Patterns</h1>
-      <p className="small muted">
-        Comparative narrative, conditional structures and mutashabihat — computed over the whole
-        corpus, with the method stated on each view.
-      </p>
-      <div className="pill-row">
-        {(["narrative", "conditionals", "mutashabihat"] as Tab[]).map((name) => (
-          <button
-            key={name}
-            className="pill"
-            style={tab === name ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
-            onClick={() => setTab(name)}
-          >
-            {name}
-          </button>
-        ))}
+      <header className="page-head">
+        <div className="eyebrow">{t("Computed over the whole corpus", "پورے متن پر شمار شدہ")}</div>
+        <h1>{t("Patterns", "نمونے")}</h1>
+        <p className="lede">
+          {t(
+            "Comparative narrative, conditional structures and mutashabihat — each with its method stated on the view, because a pattern without a method is a Rorschach test.",
+            "تقابلی بیانیہ، شرطیہ تراکیب اور متشابہات — ہر ایک کے ساتھ اس کا طریقۂ کار درج ہے۔",
+          )}
+        </p>
+      </header>
+
+      <Segmented
+        label="Pattern view"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: "narrative", label: "Narrative", hint: "one story told many times" },
+          { value: "conditionals", label: "Conditionals", hint: "if → then structures" },
+          { value: "mutashabihat", label: "Mutashabihat", hint: "near-identical verses" },
+        ]}
+      />
+
+      <div className="mt-4">
+        {tab === "narrative" && <Narrative />}
+        {tab === "conditionals" && <Conditionals />}
+        {tab === "mutashabihat" && <Mutashabihat />}
       </div>
-      {tab === "narrative" && <Narrative />}
-      {tab === "conditionals" && <Conditionals />}
-      {tab === "mutashabihat" && <Mutashabihat />}
     </>
   );
 }
+
+/* --------------------------------------------------------------- narrative */
 
 function Narrative() {
   const [figures, setFigures] = useState<{ key: string; label_en: string; ayah_mentions: number }[]>([]);
@@ -49,8 +66,8 @@ function Narrative() {
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_BASE}/analytics/narrative/figures`)
-      .then((r) => r.json())
+    fetch(`${API_BASE}/analytics/narrative/figures`)
+      .then((response) => response.json())
       .then(setFigures)
       .catch(() => {});
   }, []);
@@ -62,63 +79,94 @@ function Narrative() {
 
   return (
     <>
-      <div className="pill-row">
-        {figures.map((f) => (
+      <div className="row tight mb-4">
+        {figures.map((row) => (
           <button
-            key={f.key}
-            className="pill"
-            style={figure === f.key ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
-            onClick={() => setFigure(f.key)}
+            key={row.key}
+            className="chip"
+            aria-pressed={figure === row.key}
+            onClick={() => setFigure(row.key)}
           >
-            {f.label_en.split(" ")[0]} <span className="muted">{f.ayah_mentions}</span>
+            {row.label_en.split(" ")[0]}{" "}
+            <span className="num faint">{row.ayah_mentions}</span>
           </button>
         ))}
       </div>
+
       <ErrorNote error={error} />
+
       {!data ? (
-        <p className="muted">Loading…</p>
+        <Skeleton h={220} />
       ) : (
-        <>
+        <div className="fade-in">
           <div className="stat-grid">
-            <Stat n={data.passage_count} k="passages" />
-            <Stat n={data.surahs.length} k="surahs" />
-            <Stat n={data.shared_by_all.length} k="motifs in all" />
+            <Stat n={<CountUp value={data.passage_count} />} k="passages" accent />
+            <Stat n={<CountUp value={data.surahs.length} />} k="surahs" />
+            <Stat
+              n={<CountUp value={data.shared_by_all.length} />}
+              k="motifs in every telling"
+              hint="the invariant core"
+            />
           </div>
-          <p className="small muted">{data.reading}</p>
-          <div className="scroll-x">
+
+          <Notice kind="info">{data.reading}</Notice>
+
+          <div className="table-wrap mt-4">
             <table>
               <thead>
                 <tr>
                   <th>passage</th>
                   <th>place</th>
-                  <th className="mono">ayat</th>
+                  <th style={{ textAlign: "end" }}>ayat</th>
                   <th>adds</th>
                   <th>omits</th>
-                  <th className="mono">reorder</th>
+                  <th style={{ textAlign: "end" }}>
+                    <Tip text="How far this telling's motif order departs from the others. 0 means the same sequence.">
+                      <span>reorder</span>
+                    </Tip>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {data.passages.map((p: any) => (
-                  <tr key={p.ref}>
+                {data.passages.map((passage: any) => (
+                  <tr key={passage.ref}>
                     <td>
-                      <strong>{p.ref}</strong>
-                      <div className="small muted">{p.surah_name}</div>
+                      <Link href={`/surah/${passage.ref.split(":")[0]}`} className="mono">
+                        <strong>{passage.ref}</strong>
+                      </Link>
+                      <div className="xs muted">{passage.surah_name}</div>
                     </td>
-                    <td className="small">{p.revelation_place}</td>
-                    <td className="mono">{p.ayah_count}</td>
-                    <td dir="rtl" className="small">{p.adds_vs_others.slice(0, 5).join("، ") || "—"}</td>
-                    <td dir="rtl" className="small">{p.omits_vs_union.slice(0, 5).join("، ") || "—"}</td>
-                    <td className="mono">{p.reorder_score}</td>
+                    <td>
+                      <span
+                        className="badge plain xs"
+                        style={{
+                          color:
+                            passage.revelation_place === "makki" ? "var(--makki)" : "var(--madani)",
+                        }}
+                      >
+                        {passage.revelation_place}
+                      </span>
+                    </td>
+                    <td className="mono" style={{ textAlign: "end" }}>{passage.ayah_count}</td>
+                    <td dir="rtl" className="xs" style={{ color: "var(--accent-text)" }}>
+                      {passage.adds_vs_others.slice(0, 5).join("، ") || "—"}
+                    </td>
+                    <td dir="rtl" className="xs muted">
+                      {passage.omits_vs_union.slice(0, 5).join("، ") || "—"}
+                    </td>
+                    <td className="mono" style={{ textAlign: "end" }}>{passage.reorder_score}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </>
+        </div>
       )}
     </>
   );
 }
+
+/* ------------------------------------------------------------ conditionals */
 
 function Conditionals() {
   const [data, setData] = useState<any>(null);
@@ -127,131 +175,156 @@ function Conditionals() {
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_BASE}/analytics/conditionals/summary`)
-      .then((r) => r.json())
+    fetch(`${API_BASE}/analytics/conditionals/summary`)
+      .then((response) => response.json())
       .then(setSummary)
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     setData(null);
-    fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE}/analytics/conditionals?limit=40${
-        particle ? `&particle=${particle}` : ""
-      }`,
-    )
-      .then((r) => r.json())
+    fetch(`${API_BASE}/analytics/conditionals?limit=40${particle ? `&particle=${particle}` : ""}`)
+      .then((response) => response.json())
       .then(setData)
       .catch(setError);
   }, [particle]);
 
   return (
     <>
-      <p className="small muted">
-        إِنْ / إِذَا … فَ… mined from the morphology: the corpus's own tags mark the particle and the
-        ف of the apodosis, so the split between condition and consequence is the annotators'
-        judgement. Structures without an explicit ف are split by a stated heuristic and carry
-        confidence 0.5 — read those individually.
-      </p>
+      <Notice kind="info">
+        إِنْ / إِذَا … فَ… mined from the morphology. The corpus's own tags mark the particle and the
+        ف of the apodosis, so that split is the annotators' judgement. Structures with no explicit ف
+        are split by a stated heuristic and carry confidence 0.5 — those are flagged individually
+        rather than mixed in silently.
+      </Notice>
+
       {summary && (
         <>
           <div className="stat-grid">
-            <Stat n={summary.total} k="structures" />
-            {summary.particles.slice(0, 3).map((p: any) => (
-              <Stat key={p.particle} n={p.count} k={p.particle} />
+            <Stat n={<CountUp value={summary.total} />} k="structures" accent />
+            {summary.particles.slice(0, 3).map((row: any) => (
+              <Stat key={row.particle} n={<CountUp value={row.count} />} k={row.particle} />
             ))}
           </div>
-          <div className="pill-row">
-            <button className="pill" style={!particle ? { borderColor: "var(--accent)" } : {}} onClick={() => setParticle("")}>
+
+          <div className="row tight mb-4">
+            <button className="chip" aria-pressed={!particle} onClick={() => setParticle("")}>
               all
             </button>
-            {summary.particles.map((p: any) => (
+            {summary.particles.map((row: any) => (
               <button
-                key={p.particle}
-                className="pill"
-                style={particle === p.particle ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
-                onClick={() => setParticle(p.particle)}
+                key={row.particle}
+                className="chip"
+                aria-pressed={particle === row.particle}
+                onClick={() => setParticle(row.particle)}
               >
-                {p.particle} <span className="muted">{p.count}</span>
+                <span dir="rtl">{row.particle}</span> <span className="num faint">{row.count}</span>
               </button>
             ))}
           </div>
         </>
       )}
+
       <ErrorNote error={error} />
+
       {!data ? (
-        <p className="muted">Loading…</p>
+        <Skeleton h={200} />
       ) : (
-        data.results.map((row: any) => (
-          <article key={`${row.ref}-${row.condition.slice(0, 12)}`} className="card">
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <strong>{row.ref}</strong>
-              <span className={`badge ${row.explicit_apodosis ? "badge-exhaustive" : "badge-ranked"}`}>
-                {row.explicit_apodosis ? "explicit فَ" : `heuristic split · ${row.confidence}`}
-              </span>
-            </div>
-            <div className="row" style={{ gap: 0, flexDirection: "column", alignItems: "stretch" }}>
-              <div className="prov prov-retrieved" style={{ padding: "6px 12px" }}>
-                <div className="k small muted">condition</div>
-                <p className="ayah" style={{ fontSize: "1.2rem", margin: 0 }}>{row.condition}</p>
+        <div className="stack fade-in">
+          {data.results.map((row: any) => (
+            <article key={`${row.ref}-${row.condition.slice(0, 12)}`} className="card card-hover">
+              <header className="row between mb-2">
+                <Link href={`/surah/${row.ref.split(":")[0]}#a${row.ref.split(":")[1]}`} className="mono">
+                  <strong>{row.ref}</strong>
+                </Link>
+                <span className={`badge ${row.explicit_apodosis ? "badge-exhaustive" : "badge-ranked"}`}>
+                  {row.explicit_apodosis ? "explicit فَ" : `heuristic split · ${row.confidence}`}
+                </span>
+              </header>
+
+              <div className="prov prov-retrieved" style={{ paddingBlock: 4 }}>
+                <div className="xs faint" style={{ textTransform: "uppercase", letterSpacing: ".07em" }}>
+                  condition
+                </div>
+                <AyahText text={row.condition} size="sm" />
               </div>
-              <div className="prov prov-system_suggested" style={{ padding: "6px 12px", marginTop: 6 }}>
-                <div className="k small muted">consequence</div>
-                <p className="ayah" style={{ fontSize: "1.2rem", margin: 0 }}>{row.consequence}</p>
+
+              <div
+                className="prov prov-system_suggested"
+                style={{ paddingBlock: 4, marginTop: "var(--s-2)" }}
+              >
+                <div className="xs faint" style={{ textTransform: "uppercase", letterSpacing: ".07em" }}>
+                  consequence
+                </div>
+                <AyahText text={row.consequence} size="sm" />
               </div>
-            </div>
-          </article>
-        ))
+            </article>
+          ))}
+        </div>
       )}
     </>
   );
 }
+
+/* ----------------------------------------------------------- mutashabihat */
 
 function Mutashabihat() {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_BASE}/analytics/mutashabihat/clusters?min_score=0.8&min_size=3`)
-      .then((r) => r.json())
+    fetch(`${API_BASE}/analytics/mutashabihat/clusters?min_score=0.8&min_size=3`)
+      .then((response) => response.json())
       .then(setData)
       .catch(setError);
   }, []);
 
   return (
     <>
-      <p className="small muted">
+      <Notice kind="info">
         Groups of three or more mutually near-identical ayat — repeated refrains and formulae.
-        Detected by word-shingle similarity over the folded text; the separate root-similarity tier
-        (same episode, different wording) is shown on each ayah's own page.
-      </p>
+        Detected by word-shingle similarity over the folded text. The separate root-similarity tier
+        (same episode, different wording) lives on each ayah's own page.
+      </Notice>
+
       <ErrorNote error={error} />
+
       {!data ? (
-        <p className="muted">Loading…</p>
+        <Skeleton h={200} />
+      ) : data.clusters.length === 0 ? (
+        <EmptyState title="No clusters at this threshold" glyph="≈" />
       ) : (
-        <>
+        <div className="fade-in">
           <div className="stat-grid">
-            <Stat n={data.cluster_count} k="clusters" />
-            <Stat n={data.clusters[0]?.size ?? 0} k="largest" />
+            <Stat n={<CountUp value={data.cluster_count} />} k="clusters" accent />
+            <Stat n={<CountUp value={data.clusters[0]?.size ?? 0} />} k="largest cluster" />
           </div>
-          {data.clusters.map((cluster: any, index: number) => (
-            <article key={index} className="card">
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <strong>{cluster.size} ayat</strong>
-                <span className="small muted">surahs {cluster.surahs.join(", ")}</span>
-              </div>
-              {cluster.ayat.slice(0, 4).map((ayah: any) => (
-                <div key={ayah.ayah_id}>
-                  <p className="ayah" style={{ fontSize: "1.25rem", marginBottom: 0 }}>{ayah.text}</p>
-                  <div className="small muted">{ayah.ref}</div>
-                </div>
-              ))}
-              {cluster.ayat.length > 4 && (
-                <div className="small muted">…and {cluster.ayat.length - 4} more</div>
-              )}
-            </article>
-          ))}
-        </>
+
+          <div className="stack">
+            {data.clusters.map((cluster: any, index: number) => (
+              <article key={index} className="card card-hover">
+                <header className="row between mb-2">
+                  <strong>{cluster.size} ayat</strong>
+                  <span className="xs muted">surahs {cluster.surahs.join(", ")}</span>
+                </header>
+                {cluster.ayat.slice(0, 4).map((ayah: any) => (
+                  <div key={ayah.ayah_id} style={{ borderTop: "1px solid var(--border)", paddingTop: 6 }}>
+                    <AyahText text={ayah.text} size="sm" />
+                    <Link
+                      href={`/surah/${ayah.ref.split(":")[0]}#a${ayah.ref.split(":")[1]}`}
+                      className="xs mono muted"
+                    >
+                      {ayah.ref}
+                    </Link>
+                  </div>
+                ))}
+                {cluster.ayat.length > 4 && (
+                  <div className="xs faint mt-2">…and {cluster.ayat.length - 4} more</div>
+                )}
+              </article>
+            ))}
+          </div>
+        </div>
       )}
     </>
   );
