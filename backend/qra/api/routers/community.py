@@ -243,6 +243,37 @@ def flags(
     return service.flag_queue(session, resolution=resolution)
 
 
+@router.get("/review-load")
+def review_load(
+    principal=needs("reviewer"), session: Session = Depends(get_session)
+) -> dict:
+    """How much is waiting on a reviewer, across both queues.
+
+    Posting is immediate on this deployment, so an unwatched flag queue is the
+    failure mode. This is the number that belongs in front of a reviewer rather
+    than behind a menu.
+    """
+    from sqlalchemy import func, select
+
+    from qra.models import Finding, Flag, Post
+
+    open_flags = session.scalar(
+        select(func.count()).select_from(Flag).where(Flag.resolution == "open")
+    ) or 0
+    auto_hidden = session.scalar(
+        select(func.count()).select_from(Post).where(Post.status == "hidden")
+    ) or 0
+    submitted = session.scalar(
+        select(func.count()).select_from(Finding).where(Finding.review_status == "submitted")
+    ) or 0
+    return {
+        "open_flags": open_flags,
+        "auto_hidden_posts": auto_hidden,
+        "findings_submitted": submitted,
+        "total": open_flags + submitted,
+    }
+
+
 @router.post("/{target_kind}/{target_id}/moderate")
 def moderate(
     target_kind: str,

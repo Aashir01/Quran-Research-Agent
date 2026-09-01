@@ -42,6 +42,7 @@ const PAGES = [
   { path: "/community", label: "The commons", hint: "shared research, questions and corrections" },
   { path: "/notes", label: "Notebook", hint: "anchored notes and backlinks" },
   { path: "/research", label: "Research runs", hint: "agent runs and their critic reports" },
+  { path: "/review", label: "Reviewer console", hint: "flag queue and findings awaiting approval" },
   { path: "/about", label: "Sources & guarantees", hint: "licences, retrieval modes, hard rules" },
 ];
 

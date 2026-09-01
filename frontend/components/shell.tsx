@@ -32,6 +32,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { theme, setTheme, lang, setLang, t } = usePrefs();
   const [palette, setPalette] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
+  // Reviewer-only, and only when there is something to review: a badge that is
+  // always zero teaches people to stop looking at it.
+  const [reviewLoad, setReviewLoad] = useState<number | null>(null);
 
   // ⌘K anywhere, and "/" when you are not already typing.
   useEffect(() => {
@@ -62,6 +65,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
       .then(() => setOnline(true))
       .catch(() => setOnline(false));
   }, []);
+
+  // The console is hidden from anyone who cannot act on it, rather than shown
+  // and then refusing — a menu item that always 403s is just noise.
+  useEffect(() => {
+    api
+      .reviewLoad()
+      .then((load) => setReviewLoad(load.total))
+      .catch(() => setReviewLoad(null));
+  }, [pathname]);
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -109,6 +121,26 @@ export function Shell({ children }: { children: React.ReactNode }) {
         })}
 
         <div className="rail-foot">
+          {reviewLoad !== null && (
+            <Link
+              href="/review"
+              className="navitem"
+              aria-current={isActive("/review") ? "page" : undefined}
+            >
+              <span className="icon">
+                <Icon.scales size={20} />
+              </span>
+              {t("Review", "نظرثانی")}
+              {reviewLoad > 0 && (
+                <span
+                  className="badge badge-refuted plain"
+                  style={{ marginInlineStart: "auto", padding: "1px 7px" }}
+                >
+                  {reviewLoad}
+                </span>
+              )}
+            </Link>
+          )}
           <Link
             href="/about"
             className="navitem"

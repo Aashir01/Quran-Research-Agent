@@ -294,6 +294,37 @@ export const api = {
     ),
   discussionForAyah: (surah: number, ayah: number) =>
     request<PostDto[]>(`/community/ayah/${surah}/${ayah}`),
+  // --- reviewer ---
+  me: () =>
+    request<{ user_id: number; email: string; role: string; display_name: string; auth_enabled: boolean }>(
+      "/auth/me",
+    ),
+  reviewLoad: () =>
+    request<{ open_flags: number; auto_hidden_posts: number; findings_submitted: number; total: number }>(
+      "/community/review-load",
+    ),
+  flagQueue: (resolution = "open") =>
+    request<FlagDto[]>(`/community/flags?resolution=${resolution}`),
+  moderateContent: (
+    targetKind: "post" | "comment",
+    targetId: number,
+    action: "hide" | "remove" | "restore",
+    reason: string,
+  ) =>
+    request<{ status: string; reason: string }>(
+      `/community/${targetKind}/${targetId}/moderate`,
+      { method: "POST", body: JSON.stringify({ action, reason }) },
+    ),
+  reviewQueue: (status = "submitted") =>
+    request<
+      { id: number; question: string; summary: string; ayah_ids: number[]; author_id: number | null; review_status: string; created_at: string }[]
+    >(`/research/review-queue?status=${status}`),
+  reviewFinding: (findingId: number, approve: boolean, notes?: string) =>
+    request<{ id: number; review_status: string }>(`/research/findings/${findingId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ approve, notes: notes ?? null }),
+    }),
+
   communityStats: () =>
     request<{ posts: number; with_evidence: number; comments: number; open_flags: number }>(
       "/community/stats",
@@ -412,6 +443,22 @@ export type CommentDto = {
   created_at: string;
   can_edit: boolean;
   replies: CommentDto[];
+};
+
+export type FlagDto = {
+  id: number;
+  target_kind: "post" | "comment";
+  target_id: number;
+  reason: string;
+  detail: string | null;
+  resolution: string;
+  created_at: string;
+  target: {
+    title: string | null;
+    excerpt: string;
+    status: string;
+    author_id: number | null;
+  } | null;
 };
 
 export type FeedDto = {

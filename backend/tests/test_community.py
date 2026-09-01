@@ -332,3 +332,23 @@ def test_the_local_identity_is_labelled_not_disguised(session):
     from qra.security.service import local_user
 
     assert "auth disabled" in local_user(session).display_name
+
+
+def test_review_load_counts_both_queues(session, author):
+    """A reviewer needs one number, not two pages to remember to check."""
+    from fastapi.testclient import TestClient
+
+    from qra.api.main import app
+
+    post = service.create_post(session, principal=author, title="to flag", body="text")
+    service.flag(
+        session,
+        target_kind="post",
+        target_id=post["id"],
+        principal=_principal(session, "load-flagger@example.org"),
+        reason="off_topic",
+    )
+    payload = TestClient(app).get("/community/review-load").json()
+    assert payload["open_flags"] >= 1
+    assert payload["total"] >= payload["open_flags"]
+    assert "findings_submitted" in payload
