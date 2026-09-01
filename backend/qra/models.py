@@ -953,3 +953,66 @@ class Flag(Base):
             "resolution in ('open','upheld','dismissed')", name="ck_flag_resolution"
         ),
     )
+
+
+class AsbabReport(Base):
+    """An occasion-of-revelation *report* (WP-20).
+
+    Deliberately not a tafsir row and deliberately not a property of an ayah.
+    An asbab entry is a claim someone transmitted — "this was revealed when X
+    happened" — and the scholarly tradition disagrees about many of them. Filing
+    them as commentary makes them read as settled context, which is the single
+    thing the interviewed researchers drew a red line around.
+
+    So every row carries a claimant and a grade, and ``grade`` has no default
+    that could be mistaken for authentication: an ungraded report says
+    ``ungraded``, loudly, and the API refuses to serialise a row without it.
+
+    ``mapping`` records how the ayah was determined, because in the shipped
+    al-Wahidi edition the upstream filing was wrong for 673 of 690 entries —
+    the verse the report is *about* is cited inside its own text, and that is
+    the reference this table trusts.
+    """
+
+    __tablename__ = "asbab_report"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    edition_id: Mapped[int] = mapped_column(ForeignKey("edition.id"), index=True)
+    ayah_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ayah.id"), nullable=True, index=True
+    )
+    surah_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    ayah_num: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    text: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    # Who transmitted or compiled the report.
+    claimant: Mapped[str] = mapped_column(String(256))
+    source_work: Mapped[str] = mapped_column(String(256))
+    reference: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # sahih | hasan | daif | mursal | ungraded — never nullable, never defaulted
+    # to anything that reads as authenticated.
+    grade: Mapped[str] = mapped_column(String(24), default="ungraded", index=True)
+    graded_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # in_text_reference | upstream_filing | unmapped
+    mapping: Mapped[str] = mapped_column(String(32), default="unmapped", index=True)
+    mapping_confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    # Entries that are not occasion-of-revelation reports at all are kept but
+    # withheld: the row survives so the discrepancy stays auditable.
+    status: Mapped[str] = mapped_column(String(16), default="published", index=True)
+    withheld_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    source_entry_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint(
+            "grade in ('sahih','hasan','daif','mursal','ungraded')", name="ck_asbab_grade"
+        ),
+        CheckConstraint(
+            "status in ('published','withheld')", name="ck_asbab_status"
+        ),
+        Index("ix_asbab_lookup", "ayah_id", "status"),
+    )

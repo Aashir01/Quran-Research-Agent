@@ -164,6 +164,9 @@ def _render_tafsir(session: Session, ref: str, edition_slug: str | None) -> tupl
             TafsirEntry.surah_id == surah,
             TafsirEntry.ayah_start <= ayah_num,
             TafsirEntry.ayah_end >= ayah_num,
+            # Asbab collections are not commentary; they render through /asbab
+            # with a grade. See qra.tools.ASBAB_EDITIONS.
+            Edition.slug.notin_(("asbab-wahidi", "asbab-suyuti")),
         )
     )
     if edition_slug:

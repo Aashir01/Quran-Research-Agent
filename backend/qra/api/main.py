@@ -17,6 +17,7 @@ from qra.api.routers import (
     community,
     corpus,
     export,
+    hadith,
     meta,
     research,
     search,
@@ -62,6 +63,8 @@ app.include_router(search.router)
 app.include_router(analytics.router)
 app.include_router(workspace.router)
 app.include_router(community.router)
+app.include_router(hadith.router)
+app.include_router(hadith.asbab_router)
 app.include_router(export.router)
 app.include_router(research.router)
 app.include_router(meta.router)

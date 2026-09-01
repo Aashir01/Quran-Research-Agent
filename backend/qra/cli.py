@@ -80,6 +80,16 @@ def cmd_ingest(args) -> int:
                 out.append(ingest.ingest_tafsir(session, spec.slug, force=args.force))
                 print("tafsir:", out[-1], flush=True)
             results["tafsir"] = out
+
+            # Asbab collections arrive through the tafsir feed but are not
+            # commentary. Rebuilding here re-anchors each report to the verse it
+            # cites — the upstream edition files them sequentially, which put 673
+            # of them under the wrong ayah — and attaches the grade that the
+            # /asbab endpoint refuses to serialise without.
+            from qra.analytics import asbab
+
+            results["asbab"] = asbab.rebuild(session)
+            print("asbab:", results["asbab"], flush=True)
         if run_all or "hadith" in steps:
             out = []
             for spec in sources.seed_specs({"hadith"}):

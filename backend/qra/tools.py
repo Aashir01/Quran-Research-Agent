@@ -165,6 +165,12 @@ def search_translations(
 # ---------------------------------------------------------------------------
 
 
+# Editions that are occasion-of-revelation collections, not commentary. They are
+# served by /asbab with a grade attached to every report; letting them through
+# here would put them back under the wrong ayah and strip the grade — which is
+# the exact bug WP-20 exists to fix.
+ASBAB_EDITIONS = ("asbab-wahidi", "asbab-suyuti")
+
 def get_tafsir(
     session: Session, surah: int, ayah: int, *, editions: list[str] | None = None, chars: int = 4000
 ) -> dict:
@@ -184,6 +190,8 @@ def get_tafsir(
     )
     if editions:
         stmt = stmt.where(Edition.slug.in_(editions))
+    else:
+        stmt = stmt.where(Edition.slug.notin_(ASBAB_EDITIONS))
     rows = session.execute(stmt).all()
     return {
         "ref": f"{surah}:{ayah}",
