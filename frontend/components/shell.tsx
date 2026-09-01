@@ -22,6 +22,7 @@ const NAV: { href: string; en: string; ur: string; icon: IconName }[] = [
   { href: "/", en: "Search", ur: "تلاش", icon: "search" },
   { href: "/workbench", en: "Workbench", ur: "کارگاہ", icon: "scales" },
   { href: "/patterns", en: "Patterns", ur: "نمونے", icon: "patterns" },
+  { href: "/community", en: "Commons", ur: "صحن", icon: "layers" },
   { href: "/notes", en: "Notes", ur: "یادداشت", icon: "note" },
   { href: "/research", en: "Research", ur: "تحقیق", icon: "compass" },
 ];

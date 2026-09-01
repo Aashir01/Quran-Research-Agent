@@ -766,3 +766,190 @@ class CacheEntry(Base):
     last_used_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ---------------------------------------------------------------------------
+# Layer 6: the commons — shared research, discussion, signals
+# ---------------------------------------------------------------------------
+#
+# A feed over a religious corpus is where fabricated scripture would enter if
+# anywhere did, so posts and comments run through exactly the same renderer and
+# scripture guard as agent output: quotations are placeholders resolved from the
+# database, and raw Arabic that appears in no corpus row is refused at write
+# time. Nothing here is a softer path into the app than the agents get.
+#
+# The other rule this schema encodes: a vote is a *popularity* signal and is
+# stored apart from the *evidence* signals (attached findings, verified
+# citations, a hypothesis verdict). The feed may sort by the former; it may
+# never let the former overwrite the latter. An upvoted post whose attached
+# hypothesis was refuted still reads "refuted".
+
+
+class Post(Base):
+    """One shared piece of research or discussion."""
+
+    __tablename__ = "post"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id"), nullable=True, index=True
+    )
+    org_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organisation.id"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(300))
+    # The author's template: scripture appears as {{ayah:2:255}} placeholders,
+    # never as typed Arabic. `body_rendered` is the resolved text, cached so the
+    # feed does not re-render 50 posts per request.
+    body: Mapped[str] = mapped_column(Text)
+    body_rendered: Mapped[str] = mapped_column(Text, default="")
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    # question | insight | finding | hypothesis | correction
+    kind: Mapped[str] = mapped_column(String(16), default="insight", index=True)
+
+    # Evidence attachments. A post carrying one of these is badged differently
+    # from a bare opinion, and renders that object's real citations.
+    finding_id: Mapped[int | None] = mapped_column(
+        ForeignKey("finding.id"), nullable=True, index=True
+    )
+    hypothesis_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hypothesis.id"), nullable=True, index=True
+    )
+    note_id: Mapped[int | None] = mapped_column(ForeignKey("note.id"), nullable=True, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+    # Corpus anchors, so a post surfaces on the ayah and root pages it is about.
+    ayah_ids: Mapped[list] = mapped_column(JSONType, default=list)
+    roots: Mapped[list] = mapped_column(JSONType, default=list)
+    tags: Mapped[list] = mapped_column(JSONType, default=list)
+    # Citations resolved at write time — the same payloads the renderer produced.
+    citations: Mapped[list] = mapped_column(JSONType, default=list)
+
+    # visible | hidden | removed. Hidden is a reviewer action pending appeal;
+    # removed is final. Neither deletes the row: moderation has to be auditable.
+    status: Mapped[str] = mapped_column(String(16), default="visible", index=True)
+    moderated_by: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    moderation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    moderated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Denormalised counters. Recomputed from the vote/comment tables on write —
+    # the feed reads them, nothing trusts them as the source of truth.
+    upvotes: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    comment_count: Mapped[int] = mapped_column(Integer, default=0)
+    flag_count: Mapped[int] = mapped_column(Integer, default=0, index=True)
+
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    author: Mapped[User | None] = relationship(foreign_keys=[author_id])
+    comments: Mapped[list[Comment]] = relationship(
+        back_populates="post", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind in ('question','insight','finding','hypothesis','correction')",
+            name="ck_post_kind",
+        ),
+        CheckConstraint(
+            "status in ('visible','hidden','removed')", name="ck_post_status"
+        ),
+        Index("ix_post_feed", "status", "created_at"),
+        Index("ix_post_useful", "status", "upvotes"),
+    )
+
+
+class Comment(Base):
+    """A reply. Threaded one level deep by ``parent_id``."""
+
+    __tablename__ = "post_comment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    post_id: Mapped[int] = mapped_column(
+        ForeignKey("post.id", ondelete="CASCADE"), index=True
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("post_comment.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id"), nullable=True, index=True
+    )
+    body: Mapped[str] = mapped_column(Text)
+    body_rendered: Mapped[str] = mapped_column(Text, default="")
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    citations: Mapped[list] = mapped_column(JSONType, default=list)
+
+    status: Mapped[str] = mapped_column(String(16), default="visible", index=True)
+    moderated_by: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    moderation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    upvotes: Mapped[int] = mapped_column(Integer, default=0)
+    flag_count: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    created_at: Mapped[datetime] = _now()
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    post: Mapped[Post] = relationship(back_populates="comments")
+    author: Mapped[User | None] = relationship(foreign_keys=[author_id])
+
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('visible','hidden','removed')", name="ck_comment_status"
+        ),
+    )
+
+
+class Vote(Base):
+    """An upvote. There is no downvote, deliberately.
+
+    A downvote on a scholarly claim is a popularity verdict wearing the costume
+    of a correctness verdict, and on this corpus it would bury well-evidenced
+    minority positions. Disagreement belongs in a comment or a `correction`
+    post, where it has to be argued and can itself be checked.
+    """
+
+    __tablename__ = "post_vote"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # post | comment
+    target_kind: Mapped[str] = mapped_column(String(8), index=True)
+    target_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("target_kind", "target_id", "user_id", name="uq_vote_once"),
+        CheckConstraint("target_kind in ('post','comment')", name="ck_vote_target"),
+    )
+
+
+class Flag(Base):
+    """A report. Posting is immediate, so this is the whole safety net."""
+
+    __tablename__ = "post_flag"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_kind: Mapped[str] = mapped_column(String(8), index=True)
+    target_id: Mapped[int] = mapped_column(Integer, index=True)
+    reporter_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    # fabricated_scripture | misattribution | off_topic | abuse | other
+    reason: Mapped[str] = mapped_column(String(32))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # open | upheld | dismissed
+    resolution: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    resolved_by: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint(
+            "target_kind", "target_id", "reporter_id", name="uq_flag_once_per_reporter"
+        ),
+        CheckConstraint("target_kind in ('post','comment')", name="ck_flag_target"),
+        CheckConstraint(
+            "resolution in ('open','upheld','dismissed')", name="ck_flag_resolution"
+        ),
+    )

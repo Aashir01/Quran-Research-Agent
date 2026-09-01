@@ -142,6 +142,7 @@ backend/qra/
   api/                 FastAPI routers
   mcp/                 MCP server — same tools, three surfaces
   workspace/           anchored notes, hypothesis history, team layer
+  community/           shared posts, comments, upvotes, flags
 frontend/              Next.js PWA, mobile-first, RTL + Nastaliq
   app/globals.css      the design system, in cascade layers
   components/          shell, command palette, charts, domain primitives
@@ -162,6 +163,8 @@ docs/                  LICENSING.md, ARCHITECTURE.md, MODELS.md
   every fallback chain ends in no model rather than a weaker one
 * [`docs/DESIGN.md`](docs/DESIGN.md) — the interface: its tokens, the rules its
   components enforce, and the RTL traps that are easy to regress
+* [`docs/COMMONS.md`](docs/COMMONS.md) — the shared feed: why votes never
+  overwrite evidence, and how the scripture guard refuses *and then helps*
 
 ## Licence
 

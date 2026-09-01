@@ -16,15 +16,48 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (!response.ok) {
-    const detail = await response.text();
-    throw new ApiError(response.status, detail || response.statusText);
+    const raw = await response.text();
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      /* not every error body is JSON */
+    }
+    // FastAPI nests structured errors under `detail`. The scripture guard uses
+    // that to return the offending runs *and* the reference the author should
+    // have cited, so the client must not flatten it to a string.
+    const detail =
+      parsed && typeof parsed === "object" && "detail" in parsed
+        ? (parsed as { detail: unknown }).detail
+        : parsed;
+    const message =
+      typeof detail === "string"
+        ? detail
+        : detail && typeof detail === "object" && "message" in detail
+          ? String((detail as { message: unknown }).message)
+          : raw || response.statusText;
+    throw new ApiError(response.status, message, detail);
   }
   return response.json() as Promise<T>;
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    /** The parsed error body, when the server sent a structured one. */
+    public detail: unknown = null,
+  ) {
     super(message);
+  }
+
+  /** The scripture guard's refusal, when that is what happened. */
+  get refusal(): GuardRefusal | null {
+    const d = this.detail;
+    if (d && typeof d === "object" && "violations" in d && "suggestions" in d) {
+      return d as GuardRefusal;
+    }
+    return null;
   }
 }
 
@@ -189,6 +222,10 @@ export const api = {
       "/analytics/hypothesis/samples",
     ),
   notes: () => request<NoteDto[]>("/workspace/notes"),
+  listHypotheses: () =>
+    request<{ id: number; title: string; statement: string; status: string }[]>(
+      "/workspace/hypotheses",
+    ),
   createNote: (payload: {
     title: string;
     body: string;
@@ -221,6 +258,47 @@ export const api = {
   stats: () => request<Record<string, number>>("/meta/stats"),
   licenses: () =>
     request<{ shipped: LicenseRow[]; withheld: LicenseRow[]; policy: string }>("/meta/licenses"),
+  // --- the commons ---
+  feed: (params: { sort?: string; kind?: string; tag?: string; ayah_id?: number; limit?: number; offset?: number } = {}) =>
+    request<FeedDto>(
+      `/community/feed?${new URLSearchParams(
+        Object.entries(params)
+          .filter(([, v]) => v !== undefined && v !== "")
+          .map(([k, v]) => [k, String(v)]),
+      )}`,
+    ),
+  post: (id: number) => request<PostDto>(`/community/posts/${id}`),
+  createPost: (payload: {
+    title: string;
+    body: string;
+    language?: string;
+    kind?: string;
+    finding_id?: number | null;
+    hypothesis_id?: number | null;
+    note_id?: number | null;
+    tags?: string[];
+  }) => request<PostDto>("/community/posts", { method: "POST", body: JSON.stringify(payload) }),
+  comment: (postId: number, body: string, parentId?: number | null, language = "en") =>
+    request<CommentDto>(`/community/posts/${postId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body, parent_id: parentId ?? null, language }),
+    }),
+  vote: (targetKind: "post" | "comment", targetId: number) =>
+    request<{ upvotes: number; voted: boolean }>(`/community/${targetKind}/${targetId}/vote`, {
+      method: "POST",
+    }),
+  flagContent: (targetKind: "post" | "comment", targetId: number, reason: string, detail?: string) =>
+    request<{ flagged: boolean; auto_hidden?: boolean }>(
+      `/community/${targetKind}/${targetId}/flag`,
+      { method: "POST", body: JSON.stringify({ reason, detail: detail ?? null }) },
+    ),
+  discussionForAyah: (surah: number, ayah: number) =>
+    request<PostDto[]>(`/community/ayah/${surah}/${ayah}`),
+  communityStats: () =>
+    request<{ posts: number; with_evidence: number; comments: number; open_flags: number }>(
+      "/community/stats",
+    ),
+
   narrative: (figure: string) =>
     request<{
       label_en: string;
@@ -251,6 +329,114 @@ export const api = {
         confidence: number;
       }[];
     }>(`/analytics/conditionals?${roots?.map((r) => `roots=${encodeURIComponent(r)}`).join("&") ?? ""}`),
+};
+
+/* --- the commons -------------------------------------------------------- */
+
+export type PostAuthor = { id: number | null; display_name: string; role: string | null };
+
+export type PostEvidence =
+  | {
+      kind: "finding";
+      id: number;
+      question: string;
+      summary: string;
+      review_status: string;
+      citation_count: number;
+      run_id: string | null;
+      verified: boolean;
+    }
+  | {
+      kind: "hypothesis";
+      id: number;
+      title: string;
+      statement: string;
+      status: string;
+      verified: boolean;
+      verdict?: string;
+      violating_count?: number;
+      supporting_count?: number;
+      coverage?: number;
+      within_chance?: boolean | null;
+      tested_at?: string;
+    }
+  | {
+      kind: "note";
+      id: number;
+      title: string;
+      provenance: string;
+      anchors: (string | null)[];
+      verified: boolean;
+    };
+
+export type PostDto = {
+  id: number;
+  kind: "question" | "insight" | "finding" | "hypothesis" | "correction";
+  title: string;
+  body: string;
+  body_template?: string | null;
+  language: string;
+  author: PostAuthor;
+  tags: string[];
+  ayah_ids: number[];
+  roots: string[];
+  citations: Citation[];
+  citation_count: number;
+  evidence: PostEvidence | null;
+  has_evidence: boolean;
+  upvotes: number;
+  voted: boolean;
+  comment_count: number;
+  status: string;
+  flag_count: number;
+  created_at: string;
+  edited_at: string | null;
+  can_edit: boolean;
+  comments?: CommentDto[];
+  removed?: boolean;
+  moderation_reason?: string | null;
+};
+
+export type CommentDto = {
+  id: number;
+  post_id: number;
+  parent_id: number | null;
+  author: PostAuthor;
+  body: string;
+  language: string;
+  citations: Citation[];
+  upvotes: number;
+  voted: boolean;
+  status: string;
+  removed: boolean;
+  created_at: string;
+  can_edit: boolean;
+  replies: CommentDto[];
+};
+
+export type FeedDto = {
+  sort: string;
+  total: number;
+  limit: number;
+  offset: number;
+  /** Always false. The feed is ranked; only corpus retrieval claims completeness. */
+  exhaustive: boolean;
+  note: string;
+  posts: PostDto[];
+};
+
+/** What the API returns when the scripture guard refuses a write. */
+export type GuardRefusal = {
+  message: string;
+  violations: string[];
+  suggestions: {
+    passage: string;
+    partial?: boolean;
+    ref: string;
+    placeholder: string;
+    total_occurrences: number;
+    also_at: string[];
+  }[];
 };
 
 export type NoteDto = {

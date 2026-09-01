@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from fastapi import Depends, HTTPException, Request
 
+from qra.db import session_scope
 from qra.security.auth import (
     Principal,
     RoleError,
     auth_enabled,
-    bootstrap_principal,
     current_principal,
 )
 
@@ -25,7 +25,23 @@ def principal_or_local(request: Request) -> Principal:
         return found
     if auth_enabled():
         raise HTTPException(401, "authentication required")
-    return bootstrap_principal()
+    # Auth is off. The bootstrap identity is resolved to a *real* user row here
+    # rather than left as a sentinel id, because every authored write in the app
+    # — notes, findings, posts — carries a foreign key to app_user. Doing it in
+    # this one place means no route has to remember.
+    from qra.security.service import local_user
+
+    with session_scope() as session:
+        row = local_user(session)
+        user_id, display_name = row.id, row.display_name
+    return Principal(
+        user_id=user_id,
+        email="local@localhost",
+        role="admin",
+        org_id=None,
+        display_name=display_name,
+        issuer="disabled",
+    )
 
 
 def needs(role: str):

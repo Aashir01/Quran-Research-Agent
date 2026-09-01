@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { api, type NoteDto, type Span, type Surah } from "@/lib/api";
+import { api, type NoteDto, type PostDto, type Span, type Surah } from "@/lib/api";
 import {
   AyahText,
   CitationLine,
@@ -255,7 +255,7 @@ function TranslationBlock({ rows, onNeed }: { rows?: TranslationRow[]; onNeed: (
 
 /* ------------------------------------------------------------- inspector */
 
-type Tab = "morphology" | "tafsir" | "similar" | "notes";
+type Tab = "morphology" | "tafsir" | "similar" | "notes" | "discussion";
 
 function Inspector({ surah, ayah }: { surah: number; ayah: number }) {
   const [tab, setTab] = useState<Tab>("morphology");
@@ -263,6 +263,7 @@ function Inspector({ surah, ayah }: { surah: number; ayah: number }) {
   const [tafsir, setTafsir] = useState<any>(null);
   const [similar, setSimilar] = useState<any>(null);
   const [notes, setNotes] = useState<NoteDto[] | null>(null);
+  const [discussion, setDiscussion] = useState<PostDto[] | null>(null);
   const [ayahData, setAyahData] = useState<any>(null);
 
   useEffect(() => {
@@ -270,6 +271,7 @@ function Inspector({ surah, ayah }: { surah: number; ayah: number }) {
     setTafsir(null);
     setSimilar(null);
     setNotes(null);
+    setDiscussion(null);
     api.ayah(surah, ayah).then(setAyahData).catch(() => {});
   }, [surah, ayah]);
 
@@ -278,7 +280,9 @@ function Inspector({ surah, ayah }: { surah: number; ayah: number }) {
     if (tab === "tafsir" && !tafsir) api.tafsir(surah, ayah).then(setTafsir).catch(() => {});
     if (tab === "similar" && !similar) api.similar(surah, ayah).then(setSimilar).catch(() => {});
     if (tab === "notes" && !notes) api.backlinks(surah, ayah).then(setNotes).catch(() => {});
-  }, [tab, surah, ayah, morphology, tafsir, similar, notes]);
+    if (tab === "discussion" && !discussion)
+      api.discussionForAyah(surah, ayah).then(setDiscussion).catch(() => {});
+  }, [tab, surah, ayah, morphology, tafsir, similar, notes, discussion]);
 
   return (
     <div className="stack">
@@ -303,6 +307,7 @@ function Inspector({ surah, ayah }: { surah: number; ayah: number }) {
           { value: "tafsir", label: "Tafsir" },
           { value: "similar", label: "Parallels" },
           { value: "notes", label: "Notes" },
+          { value: "discussion", label: "Discussion" },
         ]}
       />
 
@@ -419,6 +424,39 @@ function Inspector({ surah, ayah }: { surah: number; ayah: number }) {
                   </div>
                 )}
               </div>
+            ))
+          )}
+        </>
+      )}
+
+      {tab === "discussion" && (
+        <>
+          {!discussion ? (
+            <Skeleton h={90} />
+          ) : discussion.length === 0 ? (
+            <EmptyState title="No discussion yet" glyph="﴿﴾">
+              Nothing in the commons is anchored to this ayah.{" "}
+              <Link href="/community">Start the conversation</Link> — quote it with{" "}
+              <code>{`{{ayah:${surah}:${ayah}}}`}</code> and the post will appear here.
+            </EmptyState>
+          ) : (
+            discussion.map((post) => (
+              <Link
+                key={post.id}
+                href={`/community/${post.id}`}
+                className="card tight card-hover"
+                style={{ color: "inherit", display: "block" }}
+              >
+                <div className="row between">
+                  <strong className="small">{post.title}</strong>
+                  {post.has_evidence && <span className="badge badge-exhaustive">evidence</span>}
+                </div>
+                <div className="row tight xs muted" style={{ marginTop: 4 }}>
+                  <span>↑ {post.upvotes}</span>
+                  <span>{post.comment_count} comments</span>
+                  <span className="faint">{post.author.display_name}</span>
+                </div>
+              </Link>
             ))
           )}
         </>

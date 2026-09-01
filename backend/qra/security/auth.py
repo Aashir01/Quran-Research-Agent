@@ -253,7 +253,14 @@ def auth_enabled() -> bool:
 
 
 def bootstrap_principal() -> Principal:
-    """The identity used when auth is disabled: a clearly-labelled local admin."""
+    """The identity used when auth is disabled: a clearly-labelled local admin.
+
+    ``user_id`` is 0, which is a sentinel and not a row in ``app_user``. Anything
+    that *writes* an authored record must go through
+    :func:`qra.api.deps.principal_or_local`, which resolves this to the real
+    persisted local account — a foreign key does not care that a deployment is
+    running open.
+    """
     return Principal(
         user_id=0,
         email="local@localhost",

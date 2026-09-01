@@ -14,6 +14,7 @@ from qra import ops
 from qra.api.routers import (
     analytics,
     auth,
+    community,
     corpus,
     export,
     meta,
@@ -60,6 +61,7 @@ app.include_router(corpus.router)
 app.include_router(search.router)
 app.include_router(analytics.router)
 app.include_router(workspace.router)
+app.include_router(community.router)
 app.include_router(export.router)
 app.include_router(research.router)
 app.include_router(meta.router)

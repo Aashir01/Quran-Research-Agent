@@ -192,3 +192,32 @@ def org_privacy_mode(session: Session, principal: Principal | None) -> str:
         return "standard"
     org = session.get(Organisation, principal.org_id)
     return org.privacy_mode if org else "standard"
+
+
+LOCAL_EMAIL = "local@localhost"
+
+
+def local_user(session: Session) -> User:
+    """The persisted account behind the auth-disabled bootstrap identity.
+
+    ``bootstrap_principal`` used to carry ``user_id=0``, which is not a row in
+    ``app_user`` — so every authored write (a note, a finding, a post) failed on
+    the foreign key the moment auth was switched off. Since running open is a
+    supported mode for a laptop, the local identity needs a real row like any
+    other author.
+
+    It is deliberately labelled rather than disguised as a person: anything this
+    account wrote was written with authentication disabled, and a reviewer
+    reading it later should be able to tell.
+    """
+    user = session.scalar(select(User).where(User.email == LOCAL_EMAIL))
+    if user is None:
+        user = User(
+            email=LOCAL_EMAIL,
+            display_name="local (auth disabled)",
+            role="admin",
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    return user
