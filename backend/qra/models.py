@@ -205,6 +205,12 @@ class Segment(Base):
     derivation: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     is_prefix: Mapped[bool] = mapped_column(Boolean, default=False)
     is_suffix: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Ordinal of this segment within its ayah, across word boundaries.
+    # `position` counts within the *word*, so the last segment of one word and
+    # the first of the next both read as 1 — adjacency is unexpressible without
+    # this. Computed once at ingest: deriving it per query with a window
+    # function turned a two-segment sequence search into 92 seconds.
+    ayah_index: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     features: Mapped[dict] = mapped_column(JSONType, default=dict)
 
     word: Mapped[Word] = relationship(back_populates="segments")

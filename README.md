@@ -165,6 +165,8 @@ docs/                  LICENSING.md, ARCHITECTURE.md, MODELS.md
   components enforce, and the RTL traps that are easy to regress
 * [`docs/COMMONS.md`](docs/COMMONS.md) — the shared feed: why votes never
   overwrite evidence, and how the scripture guard refuses *and then helps*
+* [`docs/CORPUS.md`](docs/CORPUS.md) — grammar search, takhrij, asbab as graded
+  reports, and an honest list of what is not loaded
 
 ## Licence
 

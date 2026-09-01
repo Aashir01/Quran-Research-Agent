@@ -376,10 +376,44 @@ def ingest_morphology(session: Session, *, force: bool = False) -> dict:
         )
     )
     session.commit()
+    indexed = backfill_ayah_index(session)
     return {
         "words": len(word_rows),
         "segments": len(segment_rows),
         "roots": len(root_rows),
         "lemmas": len(lemma_rows),
         "token_mismatches": len(token_mismatches),
+        "ayah_index_rows": indexed,
     }
+
+
+def backfill_ayah_index(session: Session) -> int:
+    """Number each segment within its ayah, across word boundaries.
+
+    ``Segment.position`` counts within its *word*, so the last segment of one
+    word and the first of the next both read as position 1 — adjacency is
+    inexpressible without a global ordinal. Computing it per query with a
+    window function made a two-pattern grammar search take 92 seconds; storing
+    it here brings the same query to under 200ms.
+    """
+    from sqlalchemy import text as sql_text
+
+    session.execute(
+        sql_text(
+            """
+            WITH ordered AS (
+                SELECT sg.id,
+                       row_number() OVER (
+                           PARTITION BY sg.ayah_id ORDER BY w.position, sg.position
+                       ) AS idx
+                FROM segment sg JOIN word w ON w.id = sg.word_id
+            )
+            UPDATE segment SET ayah_index = ordered.idx
+            FROM ordered WHERE segment.id = ordered.id
+            """
+        )
+    )
+    session.commit()
+    return session.scalar(
+        sql_text("SELECT count(*) FROM segment WHERE ayah_index IS NOT NULL")
+    ) or 0
