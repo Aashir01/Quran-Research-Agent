@@ -114,6 +114,22 @@ def cmd_ingest(args) -> int:
     return 0
 
 
+def cmd_seed(args) -> int:
+    """Load the code-resident fixtures that are not corpus downloads.
+
+    Only ``ijaz`` for now: a registry of scientific-miracle claims that already
+    circulate, held so a researcher asked about one has the dossier to hand.
+    The naskh and madhhab tables deliberately have no seed — populating those is
+    scholarly work with sources attached.
+    """
+    from qra.analytics import ijaz
+
+    with session_scope() as session:
+        result = ijaz.seed(session)
+    print("ijaz:", result, flush=True)
+    return 0
+
+
 def cmd_stats(args) -> int:
     with session_scope() as session:
         counts = {
@@ -261,6 +277,9 @@ def main(argv: list[str] | None = None) -> int:
         help="which corpora to put in the BM25 index",
     )
     p.set_defaults(func=cmd_ingest)
+
+    p = sub.add_parser("seed", help="load code-resident fixtures (the i'jaz claim registry)")
+    p.set_defaults(func=cmd_seed)
 
     sub.add_parser("stats", help="row counts").set_defaults(func=cmd_stats)
 

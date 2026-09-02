@@ -27,17 +27,31 @@ from qra.analytics.sandbox import SandboxError
 def _leave_no_trace(session):
     """Remove the rows a test wrote.
 
-    Not tidiness. ``naskh.registry`` reports that it ships empty, and a test
-    claim left behind would make that statement false in the running app — the
-    registry's emptiness is a design position, not an accident of seeding.
+    Not tidiness. ``naskh.registry`` reports that it ships empty and the ahkam
+    module refuses to render a ruling partly on the strength of how many
+    positions are stored — a test row left behind would make both statements
+    false in the running app. Their emptiness is a design position, not an
+    accident of seeding.
     """
     from sqlalchemy import func, select
 
-    from qra.models import NaskhClaim, SandboxSession, SandboxTest
+    from qra.models import (
+        IjazClaim,
+        MadhhabPosition,
+        NaskhClaim,
+        SandboxSession,
+        SandboxTest,
+    )
 
     high = {
         model: session.scalar(select(func.max(model.id))) or 0
-        for model in (SandboxSession, SandboxTest, NaskhClaim)
+        for model in (
+            SandboxSession,
+            SandboxTest,
+            NaskhClaim,
+            MadhhabPosition,
+            IjazClaim,
+        )
     }
     yield
     for model, ceiling in high.items():
@@ -362,3 +376,367 @@ def test_the_background_comparison_can_be_run_inline(session):
     assert payload["background_check"]["verdict"]
     # Same machinery as the finding it is checking, not a friendlier test.
     assert payload["background_check"]["quran"]["significance"]["test"] == "binomial"
+
+
+# --- WP-28: semantic fields ------------------------------------------------
+
+
+def test_a_field_never_calls_a_neighbour_a_synonym(session):
+    """The classical result in distributional semantics is that antonyms share
+    distributions. هدي's nearest neighbour in this corpus is ضلل. So the word
+    'synonym' must not appear as a label anywhere in the payload."""
+    from qra.analytics import fields
+
+    payload = fields.field(session, "hidayah")
+    labels = {n["relation"] for n in payload["distributional_neighbours"]}
+    labels |= {n["relation"] for n in payload["most_juxtaposed"]}
+    assert "synonym" not in " ".join(labels)
+    assert "not synonyms" in payload["warning"]
+
+
+def test_opposites_surface_as_the_most_juxtaposed(session):
+    """حق/باطل and هدي/ضلل are the canonical antithesis pairs. They should be
+    the highest-lift neighbours, which is the signal the payload points at."""
+    from qra.analytics import fields
+
+    guidance = {n["root"] for n in fields.field(session, "hidayah")["most_juxtaposed"]}
+    truth = {n["root"] for n in fields.field(session, "haqq")["most_juxtaposed"]}
+    assert "ضلل" in guidance
+    assert "بطل" in truth
+
+
+def test_distinctions_are_not_invented_when_no_lexicon_is_loaded(session):
+    """The load-bearing test for WP-28. علم versus معرفة is a lexicographic
+    judgement; frequency can show two roots are used differently but never what
+    the difference *is*. With no lexicon loaded the module must say so."""
+    from sqlalchemy import select
+
+    from qra.analytics import fields
+    from qra.models import Edition
+
+    loaded = session.scalars(select(Edition).where(Edition.kind == "lexicon")).all()
+    payload = fields.distinctions(session, ["علم", "حكم"])
+    if loaded and payload["available"]:
+        assert all(
+            entry.get("lexicon_entries") for entry in payload["roots"] if entry["found"]
+        )
+    else:
+        assert payload["available"] is False
+        assert "cannot be recovered from distribution" in payload["note"]
+        assert all(not entry.get("lexicon_entries") for entry in payload["roots"])
+
+
+def test_a_loaded_lexicon_is_quoted_with_its_citation(session):
+    """The other half: when an edition *is* present the distinction is quoted.
+    A synthetic edition proves the path without shipping licensed text."""
+    from sqlalchemy import select
+
+    from qra.analytics import fields
+    from qra.models import Edition, LexiconEntry, Root
+
+    edition = Edition(
+        slug="test-lexicon",
+        kind="lexicon",
+        name="Test Lexicon",
+        author="Test Author",
+        language="ar",
+        direction="rtl",
+        # An Edition cannot exist without its citation payload — that rule is
+        # what makes every quotation in the app traceable, so the fixture obeys
+        # it rather than working around it.
+        source_url="local://tests/test_analysis.py",
+        license="test fixture, not distributed",
+        license_status="unknown",
+    )
+    session.add(edition)
+    session.flush()
+    root = session.scalar(select(Root).where(Root.root_display == "علم"))
+    session.add(
+        LexiconEntry(
+            edition_id=edition.id,
+            root_id=root.id,
+            headword="علم",
+            text="knowledge that admits of no doubt, distinguished from معرفة",
+            reference="i. 2138",
+        )
+    )
+    session.commit()
+    try:
+        payload = fields.distinctions(session, ["علم"])
+        assert payload["available"] is True
+        entry = payload["roots"][0]["lexicon_entries"][0]
+        assert entry["reference"] == "i. 2138"
+        assert entry["edition"] == "Test Lexicon"
+    finally:
+        session.query(LexiconEntry).filter(LexiconEntry.edition_id == edition.id).delete()
+        session.query(Edition).filter(Edition.id == edition.id).delete()
+        session.commit()
+
+
+# --- WP-32: life domains ---------------------------------------------------
+
+
+def test_every_declared_domain_root_exists_in_the_morphology(session):
+    """WP-32's acceptance. A root list that silently loses an entry produces a
+    verse set that is wrong and looks entirely normal."""
+    from qra.analytics import domains
+
+    report = domains.verify(session)
+    assert report["all_verified"], [e for e in report["report"] if not e["verified"]]
+    assert report["domains"] == len(domains.DOMAINS)
+
+
+def test_a_domain_verse_set_counts_the_same_from_both_directions(session):
+    """Exhaustive retrieval means the forward walk and the reverse scan agree.
+    This is where that stops being an assumption."""
+    from qra.analytics import domains
+
+    for slug in ("economics", "family", "environment"):
+        check = domains.exhaustiveness(session, slug)
+        assert check["agree"], check
+
+
+def test_a_missing_root_raises_rather_than_shortening_the_list(session):
+    from qra.analytics import domains
+    from qra.analytics.domains import Domain, DomainError
+
+    broken = Domain(
+        slug="broken", label_en="Broken", label_ar="", roots=("علم", "zzzz"), note=""
+    )
+    with pytest.raises(DomainError, match="absent from the morphology"):
+        domains._ayat_for(session, broken)
+
+
+def test_the_domains_do_not_pretend_to_partition_the_corpus(session):
+    from qra.analytics import domains
+
+    catalogue = domains.catalogue(session)
+    summed = sum(entry["ayat"] for entry in catalogue["domains"])
+    assert summed > catalogue["ayat_covered"]
+    assert "double-counts" in catalogue["overlap_note"]
+
+
+def test_the_legal_vocabulary_is_madani_weighted(session):
+    """A check that the machinery measures something real: transactional verses
+    concentrate in the Medinan period, which is uncontroversial history."""
+    from qra.analytics import domains
+
+    revelation = domains.domain(session, "economics")["revelation"]
+    assert revelation["significance"]["within_chance"] is False
+    assert revelation["significance"]["direction"] == "fewer"
+
+
+# --- WP-26: nazm and rings -------------------------------------------------
+
+
+def test_a_segmentation_is_labelled_a_suggestion(session):
+    from qra.analytics import nazm
+
+    layout = nazm.segment(session, 12)
+    assert layout["provenance"] == "system_suggested"
+    assert len(layout["passages"]) > 1
+    assert "a reading" in layout["caveat"]
+
+
+def test_a_short_surah_is_not_cut_into_pieces_the_method_cannot_support(session):
+    from qra.analytics import nazm
+
+    layout = nazm.segment(session, 108)
+    assert len(layout["passages"]) == 1
+    assert "interior" in layout["note"]
+
+
+def test_a_ring_claim_is_scored_against_a_shuffled_null(session):
+    """WP-26's acceptance. Chiastic readings are easy to construct, so a mirror
+    score means nothing without knowing what a shuffled surah produces."""
+    from qra.analytics import nazm
+
+    result = nazm.rings(session, 12, trials=100)
+    assert result["testable"] is True
+    assert result["trials"] == 100
+    assert result["null_mean"] > 0
+    # Add-one: a finite permutation test cannot support a p of exactly zero.
+    assert result["p_value"] > 0
+    assert result["provenance"] == "system_suggested"
+    assert "conservative" in result["null_model_limitation"]
+
+
+def test_too_few_passages_is_refused_rather_than_scored(session):
+    from qra.analytics import nazm
+
+    result = nazm.rings(session, 108, trials=50)
+    assert result["testable"] is False
+
+
+def test_the_ring_sweep_states_its_own_chance_rate(session):
+    from qra.analytics import nazm
+
+    sweep = nazm.sweep(session, min_ayat=40, trials=60)
+    assert "would clear p<0.05 by chance alone" in sweep["headline"]
+    assert sweep["expected_by_chance"] == round(sweep["surahs_tested"] * 0.05, 1)
+    assert sweep["surviving_correction"] <= sweep["beyond_chance_uncorrected"]
+
+
+# --- WP-29: ayat al-ahkam --------------------------------------------------
+
+
+def test_a_legal_topic_never_renders_a_ruling(session):
+    """WP-29's acceptance, enforced rather than advised: `ruling` is null until
+    more than one school is on record, and it says which case applies."""
+    from qra.analytics import ahkam
+
+    topic = ahkam.topic(session, "mirath")
+    assert topic["ruling"] is None
+    assert topic["why_no_ruling"]
+    assert topic["ayat_also_carrying_a_legal_marker"] > 0
+
+
+def test_one_recorded_position_still_does_not_produce_a_ruling(session):
+    """The dangerous case. One position on record is exactly when a tool is
+    tempted to show it as the answer."""
+    from qra.analytics import ahkam
+
+    ahkam.record_position(
+        session,
+        topic="mirath",
+        madhhab="hanafi",
+        position="test position, single school",
+        source_work="Test Work",
+    )
+    topic = ahkam.topic(session, "mirath")
+    assert topic["ruling"] is None
+    assert topic["schools_on_record"] == ["hanafi"]
+    assert "fatwa engine" in topic["why_no_ruling"]
+
+    ahkam.record_position(
+        session,
+        topic="mirath",
+        madhhab="shafii",
+        position="test position, second school",
+        source_work="Test Work",
+    )
+    topic = ahkam.topic(session, "mirath")
+    assert topic["ruling"] is None
+    assert len(topic["schools_on_record"]) == 2
+    assert "not resolved into one answer" in topic["why_no_ruling"]
+
+
+def test_a_position_without_a_source_is_refused(session):
+    from qra.analytics import ahkam
+    from qra.analytics.ahkam import AhkamError
+
+    with pytest.raises(AhkamError, match="name the work"):
+        ahkam.record_position(
+            session, topic="mirath", madhhab="maliki", position="a position", source_work=" "
+        )
+
+
+def test_the_legal_marker_reads_the_right_morphology_column(session):
+    """IMPV is an aspect value here, not a mood. Reading it from the mood column
+    returns zero and looks exactly like 'the Qur'an contains no imperatives'."""
+    from qra.analytics import ahkam
+
+    survey = ahkam.survey(session)
+    assert survey["markers"]["imperative"] > 1000
+    assert survey["markers"]["jussive"] > 500
+
+
+def test_the_ahkam_survey_reports_the_disagreement_about_the_count(session):
+    from qra.analytics import ahkam
+
+    survey = ahkam.survey(session)
+    assert survey["classical_estimates"]["range"] == [150, 500]
+    assert "the total is the disagreement" in survey["classical_estimates"]["note"]
+
+
+# --- WP-31: i'jaz dossiers -------------------------------------------------
+
+
+@pytest.fixture
+def seeded_ijaz(session):
+    from qra.analytics import ijaz
+
+    ijaz.seed(session)
+    return ijaz
+
+
+def test_ten_circulating_claims_produce_balanced_dossiers(session, seeded_ijaz):
+    """WP-31's acceptance. Each dossier carries the claim, the verse, what the
+    Arabic must mean for it to hold, and the classical reading — not a verdict."""
+    from qra.analytics.ijaz import SEEDS
+
+    assert len(SEEDS) == 10
+    for spec in SEEDS:
+        dossier = seeded_ijaz.dossier(session, spec.slug)
+        assert dossier["verse"]["text_uthmani"]
+        assert dossier["requires_the_arabic_to_mean"]
+        assert dossier["science_status"]
+        assert dossier["semantic_load"]["found"] is True
+        assert "does not endorse or refute" in dossier["stance"]
+
+
+def test_no_claim_can_be_stored_above_l3(session, seeded_ijaz):
+    """The hard block. The database constraint, not a convention."""
+    from sqlalchemy.exc import IntegrityError
+
+    from qra.models import IjazClaim
+
+    levels = {row.level for row in session.query(IjazClaim).all()}
+    assert levels <= {"L3", "L4"}
+
+    session.add(
+        IjazClaim(slug="forbidden-level", claim="x", ayah_id=1, level="L0")
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+
+def test_the_module_has_no_path_that_invents_a_claim(session, seeded_ijaz):
+    from qra.analytics.ijaz import IjazError
+
+    with pytest.raises(IjazError, match="no path that creates one"):
+        seeded_ijaz.dossier(session, "a-claim-nobody-made")
+
+
+def test_unattributed_fields_are_named_rather_than_filled(session, seeded_ijaz):
+    """'Commonly attributed to' is how fabricated provenance enters. Where the
+    proponent is not known to this project the field is empty and listed."""
+    dossier = seeded_ijaz.dossier(session, "iron-sent-down")
+    assert dossier["proponent"] is None
+    assert "proponent" in dossier["unsourced"]
+
+    sourced = seeded_ijaz.dossier(session, "expanding-universe")
+    assert sourced["proponent"]
+    assert "proponent" not in sourced["unsourced"]
+
+
+def test_the_semantic_load_check_shows_the_senses_the_claim_competes_with(
+    session, seeded_ijaz
+):
+    """The check WP-31 asks for. أنزل is used of scripture, rain, cattle and
+    clothing, so 'physical descent from space' is one reading among many — and
+    that is visible from the corpus rather than argued."""
+    dossier = seeded_ijaz.dossier(session, "iron-sent-down")
+    load = dossier["semantic_load"]
+    assert load["total_segments"] > 250
+    assert load["distinct_lemmas"] > 3
+    assert any(sense["lemma"].startswith("أَنزَل") for sense in load["senses"])
+
+
+def test_a_rare_root_is_flagged_as_thin_evidence(session, seeded_ijaz):
+    """رتق occurs once in the whole Qur'an. A claim resting on it has almost
+    nothing internal to check against, and the payload says so."""
+    load = seeded_ijaz.semantic_load(session, "رتق")
+    assert load["total_segments"] <= 10
+    assert "very little internal evidence" in load["reading"]
+
+
+def test_the_classical_reading_is_quoted_not_summarised(session, seeded_ijaz):
+    """Paraphrasing a mufassir from memory is the same fabrication as inventing
+    scripture, one step further from the text."""
+    dossier = seeded_ijaz.dossier(session, "iron-sent-down")
+    entries = dossier["classical_understanding"]["entries"]
+    assert entries
+    assert all(entry["citation"] and entry["text"] for entry in entries)
+    assert any("Tabari" in entry["edition"] for entry in entries)

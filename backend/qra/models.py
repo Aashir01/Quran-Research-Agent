@@ -1123,3 +1123,79 @@ class NaskhClaim(Base):
         CheckConstraint("length(claimant) > 0", name="ck_naskh_claimant_present"),
         CheckConstraint("length(source_work) > 0", name="ck_naskh_source_present"),
     )
+
+
+class MadhhabPosition(Base):
+    """One school's position on one legal topic, attributed (WP-29).
+
+    Invariant 4 — four positions stay four positions — applies here with more
+    force than anywhere else in the application. A legal topic view that renders
+    a single ruling has erased a millennium of disagreement, so positions live
+    in their own table with the school and the source non-nullable, and the
+    ahkam module refuses to present a ruling until more than one is recorded.
+
+    Ships empty. Populating it is scholarly work with sources attached.
+    """
+
+    __tablename__ = "madhhab_position"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    topic: Mapped[str] = mapped_column(String(64), index=True)
+    # hanafi | maliki | shafii | hanbali | jafari | zahiri | zaydi | ibadi | other
+    madhhab: Mapped[str] = mapped_column(String(24), index=True)
+    position: Mapped[str] = mapped_column(Text)
+    # Never nullable: a position without a source is an assertion, not a report.
+    source_work: Mapped[str] = mapped_column(String(256))
+    scholar: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    ayah_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ayah.id"), nullable=True, index=True
+    )
+    reasoning: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("length(position) > 0", name="ck_madhhab_position_present"),
+        CheckConstraint("length(source_work) > 0", name="ck_madhhab_source_present"),
+        CheckConstraint("length(madhhab) > 0", name="ck_madhhab_school_present"),
+    )
+
+
+class IjazClaim(Base):
+    """An existing scientific-miracle claim, held for evaluation (WP-31).
+
+    This table stores claims *other people have made*, so that they can be
+    examined. It is not a place to record new ones: ``level`` is constrained to
+    L3 (linguistically possible) and L4 (inference), so the schema cannot
+    represent a claim asserted as established meaning.
+
+    ``unsourced`` names the fields whose content could not be attributed. A
+    dossier that quietly fills a proponent it does not know is a dossier that
+    manufactures provenance, so the gaps are listed rather than closed.
+    """
+
+    __tablename__ = "ijaz_claim"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    claim: Mapped[str] = mapped_column(Text)
+    ayah_id: Mapped[int] = mapped_column(ForeignKey("ayah.id"), index=True)
+    key_term: Mapped[str] = mapped_column(String(64), default="")
+    root: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Who is understood to have advanced it, and when. Nullable, because for
+    # several widely-repeated claims no first proponent is reliably known.
+    proponent: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    proponent_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # What the claim needs the Arabic to mean, kept separate from what it can bear.
+    requires_meaning: Mapped[str] = mapped_column(Text, default="")
+    science_status: Mapped[str] = mapped_column(Text, default="")
+    # L3 = linguistically possible; L4 = own inference. Never L0 or L1.
+    level: Mapped[str] = mapped_column(String(4), default="L3")
+    unsourced: Mapped[list] = mapped_column(JSONType, default=list)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("level in ('L3','L4')", name="ck_ijaz_level_never_asserted"),
+        CheckConstraint("length(claim) > 0", name="ck_ijaz_claim_present"),
+    )
