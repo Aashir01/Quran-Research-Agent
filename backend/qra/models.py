@@ -1199,3 +1199,158 @@ class IjazClaim(Base):
         CheckConstraint("level in ('L3','L4')", name="ck_ijaz_level_never_asserted"),
         CheckConstraint("length(claim) > 0", name="ck_ijaz_claim_present"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Study groups — private spaces, channels, threaded discussion
+# ---------------------------------------------------------------------------
+
+
+class StudyGroup(Base):
+    """A private space a researcher creates and invites people into.
+
+    Deliberately separate from the public commons. The commons is a feed anyone
+    can read; a study group is a room, and the difference is that a half-formed
+    idea can be said in a room. Membership is explicit — there is no discovery,
+    no join-by-link, and no public listing.
+    """
+
+    __tablename__ = "study_group"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    purpose: Mapped[str] = mapped_column(Text, default="")
+    owner_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (CheckConstraint("length(name) > 0", name="ck_group_name_present"),)
+
+
+class GroupMember(Base):
+    """Who is in the room, and what they may do.
+
+    ``owner`` can invite and archive; ``moderator`` can pin and remove messages;
+    ``member`` can write; ``reader`` can only read. Invitations are by email and
+    stay pending until accepted, so a group's membership list is never a list of
+    people who did not agree to be in it.
+    """
+
+    __tablename__ = "group_member"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("study_group.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id"), nullable=True, index=True
+    )
+    # Held for an invitation that has not been accepted, where no user row exists.
+    invited_email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    role: Mapped[str] = mapped_column(String(16), default="member")
+    invited_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id"), nullable=True
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "user_id", name="uq_group_user"),
+        UniqueConstraint("group_id", "invited_email", name="uq_group_invite"),
+        CheckConstraint(
+            "role in ('owner','moderator','member','reader')", name="ck_group_role"
+        ),
+        CheckConstraint(
+            "user_id is not null or invited_email is not null",
+            name="ck_group_member_identified",
+        ),
+    )
+
+
+class Channel(Base):
+    """A topic within a group. The owner writes the topic; members discuss it."""
+
+    __tablename__ = "channel"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("study_group.id"), index=True)
+    slug: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    # The framing the channel exists to discuss, written by whoever opened it.
+    topic: Mapped[str] = mapped_column(Text, default="")
+    # Rendered form of `topic`, with any scripture resolved from the corpus.
+    topic_rendered: Mapped[str] = mapped_column(Text, default="")
+    topic_citations: Mapped[list] = mapped_column(JSONType, default=list)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"))
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "slug", name="uq_channel_slug"),
+        CheckConstraint("length(name) > 0", name="ck_channel_name_present"),
+    )
+
+
+class Message(Base):
+    """One message in a channel, optionally the root of a thread.
+
+    ``body`` is the text as typed and ``body_rendered`` is what is displayed:
+    the same template-and-guard path as the public commons. A room being private
+    is not a reason to relax the scripture rule — a fabricated ayah quoted in a
+    study group is quoted by a person who trusts the group, and it leaves the
+    room in a screenshot.
+    """
+
+    __tablename__ = "message"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channel.id"), index=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("study_group.id"), index=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    # Null for a top-level message; the root message's id for a threaded reply.
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("message.id"), nullable=True, index=True
+    )
+    body: Mapped[str] = mapped_column(Text)
+    body_rendered: Mapped[str] = mapped_column(Text)
+    citations: Mapped[list] = mapped_column(JSONType, default=list)
+    ayah_ids: Mapped[list] = mapped_column(JSONType, default=list)
+    reply_count: Mapped[int] = mapped_column(Integer, default=0)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    edited_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        Index("ix_message_channel_time", "channel_id", "created_at"),
+        Index("ix_message_thread", "parent_id", "created_at"),
+    )
+
+
+class MessageReaction(Base):
+    """One emoji from one person on one message. Not a vote — a room is not a feed."""
+
+    __tablename__ = "message_reaction"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("message.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    emoji: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", "emoji", name="uq_reaction_once"),
+    )

@@ -352,6 +352,57 @@ export const api = {
   naskhForAyah: (surah: number, ayah: number) =>
     request<NaskhForAyah>(`/analysis/naskh/${surah}/${ayah}`),
 
+  // --- study groups ---
+  myGroups: () =>
+    request<{ groups: GroupSummary[]; invitations: GroupInvite[] }>("/groups"),
+  createGroup: (name: string, purpose = "") =>
+    request<GroupSummary>("/groups", {
+      method: "POST",
+      body: JSON.stringify({ name, purpose }),
+    }),
+  groupsMeta: () => request<GroupsMeta>("/groups/meta"),
+  groupMembers: (groupId: number) => request<GroupMemberDto[]>(`/groups/${groupId}/members`),
+  inviteToGroup: (groupId: number, email: string, role = "member") =>
+    request<{ invited: boolean; already?: string; email: string; has_account?: boolean }>(
+      `/groups/${groupId}/invite`,
+      { method: "POST", body: JSON.stringify({ email, role }) },
+    ),
+  acceptInvite: (groupId: number) =>
+    request<GroupSummary>(`/groups/${groupId}/accept`, { method: "POST" }),
+  groupChannels: (groupId: number) => request<ChannelDto[]>(`/groups/${groupId}/channels`),
+  createChannel: (groupId: number, name: string, topic = "") =>
+    request<ChannelDto>(`/groups/${groupId}/channels`, {
+      method: "POST",
+      body: JSON.stringify({ name, topic }),
+    }),
+  setChannelTopic: (channelId: number, topic: string) =>
+    request<ChannelDto>(`/groups/channels/${channelId}/topic`, {
+      method: "POST",
+      body: JSON.stringify({ topic }),
+    }),
+  channelMessages: (channelId: number, limit = 60, beforeId?: number) =>
+    request<ChannelView>(
+      `/groups/channels/${channelId}/messages?limit=${limit}${beforeId ? `&before_id=${beforeId}` : ""}`,
+    ),
+  postMessage: (channelId: number, body: string, parentId?: number | null) =>
+    request<MessageDto>(`/groups/channels/${channelId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ body, parent_id: parentId ?? null }),
+    }),
+  messageThread: (messageId: number) =>
+    request<{ root: MessageDto; replies: MessageDto[] }>(`/groups/messages/${messageId}/thread`),
+  reactToMessage: (messageId: number, emoji: string) =>
+    request<MessageDto>(`/groups/messages/${messageId}/react`, {
+      method: "POST",
+      body: JSON.stringify({ emoji }),
+    }),
+  deleteMessage: (messageId: number) =>
+    request<MessageDto>(`/groups/messages/${messageId}`, { method: "DELETE" }),
+  /** The live stream. Events carry ids only; the client re-fetches through the
+   *  authorised endpoint, so nothing bypasses the membership check. */
+  channelStream: (channelId: number) =>
+    new EventSource(`${API_BASE}/groups/channels/${channelId}/stream`),
+
   reviewLoad: () =>
     request<{ open_flags: number; auto_hidden_posts: number; findings_submitted: number; total: number }>(
       "/community/review-load",
@@ -936,4 +987,82 @@ export type NaskhForAyah = {
   claimed_to_abrogate: unknown[];
   claim_count: number;
   framing: string;
+};
+
+// --- study groups ----------------------------------------------------------
+
+export type GroupSummary = {
+  id: number;
+  slug: string;
+  name: string;
+  purpose: string;
+  your_role: "owner" | "moderator" | "member" | "reader";
+  members: number;
+  pending_invites: number;
+  channels: number;
+  archived: boolean;
+  created_at: string;
+};
+
+export type GroupInvite = {
+  group_id: number;
+  name: string;
+  purpose: string;
+  role: string;
+  invited_at: string;
+};
+
+export type GroupMemberDto = {
+  user_id: number | null;
+  display_name: string | null;
+  email: string | null;
+  role: string;
+  accepted: boolean;
+};
+
+export type ChannelDto = {
+  id: number;
+  group_id: number;
+  slug: string;
+  name: string;
+  topic: string;
+  topic_rendered: string;
+  topic_citations: Citation[];
+  messages: number;
+  created_at: string;
+};
+
+export type MessageDto = {
+  id: number;
+  channel_id: number;
+  parent_id: number | null;
+  author: { id: number; display_name: string; role: string | null };
+  /** A removed message keeps its place. A silently vanished one is a falsified record. */
+  removed: boolean;
+  body: string | null;
+  body_rendered: string;
+  citations: Citation[];
+  ayah_ids: number[];
+  reactions: { emoji: string; count: number }[];
+  reply_count: number;
+  pinned: boolean;
+  edited: boolean;
+  created_at: string;
+};
+
+export type ChannelView = {
+  channel: ChannelDto;
+  messages: MessageDto[];
+  has_more: boolean;
+  oldest_id: number | null;
+  your_role: string;
+};
+
+export type GroupsMeta = {
+  realtime: string;
+  why_not_websocket: string;
+  fanout: string;
+  fanout_limitation: string;
+  scripture_guard: string;
+  reactions_not_votes: string;
 };

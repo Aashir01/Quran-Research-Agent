@@ -1404,6 +1404,75 @@
    UTILITIES
    ======================================================================== */
 
+@layer components {
+  /* --- study groups ---------------------------------------------------- */
+
+  /* Groups | channels | conversation. Familiar on purpose: people already
+     know how to use this shape, and a novel arrangement would buy nothing. */
+  .rooms {
+    display: grid;
+    grid-template-columns: minmax(160px, 200px) minmax(160px, 200px) minmax(0, 1fr);
+    gap: var(--s-4);
+    align-items: start;
+  }
+  /* One column on a phone: three 200px rails do not fit, and a horizontally
+     scrolling chat is worse than a stacked one. */
+  @media (max-width: 900px) {
+    .rooms { grid-template-columns: minmax(0, 1fr); }
+    .room-rail { position: static; }
+  }
+
+  .room-rail {
+    position: sticky;
+    inset-block-start: var(--s-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    padding: var(--s-3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    min-inline-size: 0;
+  }
+  /* The sidebar's .navitem rules are scoped to `.rail a.navitem`. These rails
+     hold *buttons*, so none of that applies and they would otherwise render
+     with the browser's default button chrome — which reads as a text input. */
+  .room-rail .navitem {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    inline-size: 100%;
+    padding: 6px var(--s-2);
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-weight: 520;
+    text-align: start;
+    cursor: pointer;
+    transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+  }
+  .room-rail .navitem:hover { background: var(--surface-2); color: var(--text); }
+  .room-rail .navitem[aria-current="page"] {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .room-rail .navitem .grow {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .room-rail .rail-head {
+    font-size: var(--t-xs);
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--faint);
+  }
+}
+
 @layer utilities {
   .row { display: flex; gap: var(--s-3); align-items: center; flex-wrap: wrap; }
   .row.between { justify-content: space-between; }
