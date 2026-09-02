@@ -1413,6 +1413,22 @@
   .grow { flex: 1 1 220px; min-inline-size: 0; }
   .spacer { flex: 1 1 auto; }
 
+  /* Arabic outside a scripture block — a root, a lemma, a surah name.
+     Without this the text falls back to the Latin stack, which has no glyph
+     for the Quranic diacritics: فُصِّلَتۡ renders as tofu boxes, and the
+     failure looks like corrupt data rather than a missing font. */
+  .ar {
+    font-family: var(--font-arabic);
+    direction: rtl;
+    unicode-bidi: isolate;
+  }
+  .ar.lg { font-size: 1.25em; line-height: var(--lh-arabic); }
+
+  /* A list that keeps its semantics and loses its markers. `ul` is right for
+     these — they are lists, and a screen reader should say so — but the bullet
+     column fights the card layout. */
+  .bare { list-style: none; margin: 0; padding-inline-start: 0; }
+
   .muted { color: var(--muted); }
   .faint { color: var(--faint); }
   .small { font-size: var(--t-sm); }

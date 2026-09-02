@@ -218,7 +218,14 @@ def require_role(required: str = "researcher"):
     """Dependency factory: 401 without a valid token, 403 without the role."""
     from fastapi import Depends, HTTPException, Request
 
-    def dependency(request: Request) -> Principal:
+    # This module uses `from __future__ import annotations`, so `request:
+    # Request` below is stored as the *string* "Request" — and `Request` is a
+    # local of this factory, not a module global, so nothing can resolve it.
+    # FastAPI tolerates that at call time but Pydantic cannot build a schema
+    # from it, which took out /openapi.json (and with it /docs and every
+    # generated client) for the whole application. Binding the annotation to
+    # the real class keeps the import lazy and the schema buildable.
+    def dependency(request) -> Principal:
         principal = current_principal(request)
         if principal is None:
             raise HTTPException(401, "authentication required")
@@ -228,6 +235,7 @@ def require_role(required: str = "researcher"):
             raise HTTPException(403, str(exc)) from exc
         return principal
 
+    dependency.__annotations__["request"] = Request
     return Depends(dependency)
 
 

@@ -131,6 +131,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {t("Grammar", "نحو")}
         </Link>
 
+        <Link
+          href="/analysis"
+          className="navitem"
+          aria-current={isActive("/analysis") ? "page" : undefined}
+        >
+          <span className="icon">
+            <Icon.spark size={20} />
+          </span>
+          {t("Analysis", "تجزیہ")}
+        </Link>
+
         <div className="rail-foot">
           {reviewLoad !== null && (
             <Link

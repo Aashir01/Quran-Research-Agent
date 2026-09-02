@@ -63,6 +63,12 @@ def _word_heads(rows) -> list[tuple[int, str, str]]:
 
     The verb governs the word. Where there is no verb, the first person-bearing
     segment stands in.
+
+    The surface is the *whole word* as written, taken from ``word_text``. Joining
+    the person-bearing segments instead would be an easy shortcut and a wrong
+    one: only some of a word's segments carry person, so قَالُوٓا would be
+    reported as the single letter of its subject pronoun. The comparison would
+    still be correct and the display would be nonsense.
     """
     by_word: dict[int, list] = {}
     for row in rows:
@@ -73,7 +79,9 @@ def _word_heads(rows) -> list[tuple[int, str, str]]:
         segments = by_word[position]
         verb = next((sg for sg in segments if sg.pos_class == "V"), None)
         head = verb or segments[0]
-        surface = "".join(sg.form or "" for sg in segments)
+        surface = getattr(head, "word_text", None) or "".join(
+            sg.form or "" for sg in segments
+        )
         heads.append((position, head.person, surface))
     return heads
 
@@ -99,6 +107,7 @@ def iltifat(
             Segment.form,
             Segment.pos_class,
             Word.position,
+            Word.text.label("word_text"),
             Segment.ayah_index,
             Ayah.surah_id,
             Ayah.ayah_num,
@@ -251,6 +260,7 @@ def _affected_ayat(session: Session) -> set[int]:
             Segment.form,
             Segment.pos_class,
             Word.position,
+            Word.text.label("word_text"),
             Segment.ayah_index,
         )
         .join(Word, Word.id == Segment.word_id)

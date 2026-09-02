@@ -306,6 +306,52 @@ export const api = {
     request<{ user_id: number; email: string; role: string; display_name: string; auth_enabled: boolean }>(
       "/auth/me",
     ),
+  // --- Track D analysis engines ---
+  sandboxOpen: (title: string, intent: string) =>
+    request<SandboxSessionDto>("/analysis/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ title, intent }),
+    }),
+  sandboxRegister: (sessionId: number, claim: string, nullModel: string) =>
+    request<SandboxTestDto>(`/analysis/sandbox/sessions/${sessionId}/tests`, {
+      method: "POST",
+      body: JSON.stringify({ claim, null_model: nullModel }),
+    }),
+  sandboxRun: (testId: number, observed: number, n: number, baselineRate: number) =>
+    request<{ test: SandboxTestDto; session: SandboxSessionDto; watermark: string }>(
+      `/analysis/sandbox/tests/${testId}/run`,
+      {
+        method: "POST",
+        body: JSON.stringify({ observed, n, baseline_rate: baselineRate }),
+      },
+    ),
+  sandboxSession: (sessionId: number) =>
+    request<SandboxSessionDto>(`/analysis/sandbox/sessions/${sessionId}`),
+  transferPair: (a: string, b: string) =>
+    request<TransferResult>(
+      `/analysis/transfer/pair?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    ),
+  iltifat: (surah?: number, limit = 60) =>
+    request<IltifatResult>(
+      `/analysis/balagha/iltifat?limit=${limit}${surah ? `&surah=${surah}` : ""}`,
+    ),
+  iltifatHotspots: () => request<Hotspots>("/analysis/balagha/iltifat/hotspots"),
+  semanticField: (name: string) =>
+    request<SemanticField>(`/analysis/field/${encodeURIComponent(name)}`),
+  domains: () =>
+    request<{ domains: DomainSummary[]; ayat_covered: number; corpus_ayat: number; coverage: number; overlap_note: string }>(
+      "/analysis/domains",
+    ),
+  domain: (slug: string) => request<DomainDetail>(`/analysis/domains/${slug}`),
+  nazmRings: (surah: number) => request<NazmRings>(`/analysis/nazm/${surah}/rings`),
+  nazmSweep: () => request<NazmSweep>("/analysis/nazm/sweep"),
+  ahkamSurvey: () => request<AhkamSurvey>("/analysis/ahkam"),
+  ahkamTopic: (slug: string) => request<AhkamTopic>(`/analysis/ahkam/${slug}`),
+  ijazRegistry: () => request<IjazRegistry>("/analysis/ijaz"),
+  ijazDossier: (slug: string) => request<IjazDossier>(`/analysis/ijaz/${slug}`),
+  naskhForAyah: (surah: number, ayah: number) =>
+    request<NaskhForAyah>(`/analysis/naskh/${surah}/${ayah}`),
+
   reviewLoad: () =>
     request<{ open_flags: number; auto_hidden_posts: number; findings_submitted: number; total: number }>(
       "/community/review-load",
@@ -578,4 +624,316 @@ export type LicenseRow = {
   status: string;
   license: string;
   notes: string;
+};
+
+// --- Track D analysis engines ---------------------------------------------
+
+export type SignificancePayload = {
+  observed: number;
+  expected: number;
+  p_value: number;
+  corrected_p: number | null;
+  within_chance: boolean;
+  direction: string;
+  effect_size: number;
+  effect_measure: string;
+  interpretation: string;
+  test: string;
+};
+
+export type SandboxTestDto = {
+  id: number;
+  claim: string;
+  null_model: string;
+  registered_at: string;
+  ran: boolean;
+  observed: number | null;
+  expected: number | null;
+  p_value: number | null;
+  corrected_p: number | null;
+  verdict: string | null;
+};
+
+export type SandboxSessionDto = {
+  id: number;
+  title: string;
+  intent: string;
+  /** Stated before any individual result. The ordering is the product rule. */
+  headline: string;
+  tests_registered: number;
+  tests_run: number;
+  significant_before_correction: number;
+  significant_after_correction: number;
+  expected_by_chance: number;
+  alpha: number;
+  correction: string;
+  watermark: string;
+  reading: string;
+  tests: SandboxTestDto[];
+  closed: boolean;
+};
+
+export type TransferResult = {
+  roots: [string, string];
+  quran: {
+    ayat_with_a: number;
+    ayat_with_b: number;
+    ayat_with_both: number;
+    universe: number;
+    significance: SignificancePayload;
+  };
+  background: {
+    corpus: string;
+    narrations_with_a: number;
+    narrations_with_b: number;
+    narrations_with_both: number;
+    universe: number;
+    significance: SignificancePayload | null;
+    matching: string;
+  };
+  verdict: string;
+  reading: string;
+  caveat: string;
+  error?: string;
+};
+
+export type IltifatCandidate = {
+  ayah_id: number;
+  ref: string;
+  shift: string;
+  from_person: string;
+  to_person: string;
+  from_word: string;
+  to_word: string;
+  word_position: number;
+  provenance: string;
+};
+
+export type IltifatResult = {
+  feature: string;
+  arabic: string;
+  gloss: string;
+  total_shifts: number;
+  ayat_affected: number;
+  share_of_scope: number | null;
+  exhaustive: boolean;
+  candidates: IltifatCandidate[];
+  returned: number;
+  method: string;
+  caveat: string;
+  known_limitation: string;
+};
+
+export type Hotspots = {
+  baseline_rate: number;
+  baseline_note: string;
+  surahs_tested: number;
+  beyond_chance: number;
+  correction: string;
+  hotspots: (SignificancePayload & { surah: number })[];
+  caveat: string;
+};
+
+export type FieldNeighbour = {
+  root: string;
+  similarity: number;
+  ayat_with_root: number;
+  shared_ayat: number;
+  lift: number | null;
+  relation: string;
+  reading: string;
+  juxtaposition: SignificancePayload;
+  provenance: string;
+};
+
+export type SemanticField = {
+  query: string;
+  label: string;
+  head_root: string;
+  concept: string | null;
+  roots_in_concept: string[];
+  occurrences: number;
+  ayat: number;
+  distributional_neighbours: FieldNeighbour[];
+  most_juxtaposed: FieldNeighbour[];
+  juxtaposition_note: string;
+  method: string;
+  warning: string;
+  nuzul: { buckets: { bucket: number; ayat: number }[]; note: string };
+  distinctions: {
+    available: boolean;
+    note: string;
+    lexicon_editions_loaded: string[];
+    roots: { requested: string; found: boolean; root?: string; lexicon_entries?: unknown[] }[];
+  };
+};
+
+export type DomainSummary = {
+  slug: string;
+  label_en: string;
+  label_ar: string;
+  roots: number;
+  segments: number;
+  ayat: number;
+};
+
+export type DomainDetail = {
+  slug: string;
+  label_en: string;
+  label_ar: string;
+  note: string;
+  provenance: string;
+  editorial: string;
+  roots: { root: string; segments: number }[];
+  excluded: { root: string; why: string }[];
+  ayat: number;
+  share_of_corpus: number;
+  revelation: {
+    makki_ayat: number;
+    madani_ayat: number;
+    corpus_makki_share: number;
+    significance: SignificancePayload;
+  };
+  conditionals: { structures: number; by_particle: Record<string, number>; note: string };
+  sample_refs: string[];
+};
+
+export type NazmRings = {
+  surah: number;
+  name?: string;
+  testable: boolean;
+  why?: string;
+  passages?: { start: number; end: number; ayat: number; ref: string }[];
+  mirror_pairs?: { a: string; b: string; overlap: number }[];
+  centre?: string | null;
+  observed_mirror_score?: number;
+  null_mean?: number;
+  lift?: number | null;
+  p_value?: number;
+  trials?: number;
+  beyond_chance?: boolean;
+  null_model?: string;
+  null_model_limitation?: string;
+  reading?: string;
+  provenance: string;
+};
+
+export type NazmSweep = {
+  surahs_tested: number;
+  beyond_chance_uncorrected: number;
+  expected_by_chance: number;
+  surviving_correction: number;
+  headline: string;
+  finding: string;
+  limitation: string;
+  results: {
+    surah: number;
+    name: string;
+    passages: number;
+    observed: number;
+    null_mean: number;
+    lift: number | null;
+    p_value: number;
+    survives_correction: boolean;
+  }[];
+};
+
+export type AhkamTopic = {
+  slug: string;
+  label_en: string;
+  label_ar: string;
+  note: string;
+  roots: string[];
+  ayat_with_topic_vocabulary: number;
+  ayat_also_carrying_a_legal_marker: number;
+  markers_present: Record<string, number>;
+  conditional_structures: number;
+  verses: { ref: string; revelation_place: string }[];
+  positions: {
+    madhhab: string;
+    position: string;
+    scholar: string | null;
+    source_work: string;
+    reasoning: string;
+  }[];
+  schools_on_record: string[];
+  /** Always null until more than one school is on record. That is the rule. */
+  ruling: null;
+  why_no_ruling: string;
+  invariant: string;
+};
+
+export type AhkamSurvey = {
+  topics: {
+    slug: string;
+    label_en: string;
+    label_ar: string;
+    ayat_with_vocabulary: number;
+    ayat_with_marker: number;
+    schools_on_record: number;
+  }[];
+  ayat_carrying_any_legal_marker: number;
+  corpus_ayat: number;
+  markers: Record<string, number>;
+  classical_estimates: { range: number[]; note: string };
+  positions_recorded: number;
+  positions_note: string;
+};
+
+export type SemanticLoad = {
+  root: string;
+  found: boolean;
+  why?: string;
+  total_segments?: number;
+  distinct_lemmas?: number;
+  senses?: { lemma: string; occurrences: number; sample_refs: string[] }[];
+  reading?: string;
+  note?: string;
+};
+
+export type IjazDossier = {
+  slug: string;
+  claim: string;
+  verse: { ref: string; text_uthmani: string; revelation_place: string };
+  key_term: string;
+  root: string | null;
+  proponent: string | null;
+  proponent_year: number | null;
+  requires_the_arabic_to_mean: string;
+  semantic_load: SemanticLoad | null;
+  classical_understanding: {
+    entries: {
+      edition: string;
+      slug: string;
+      author: string;
+      text: string;
+      truncated: boolean;
+      covers: string;
+      citation: string;
+    }[];
+    note: string;
+  };
+  science_status: string;
+  level: string;
+  level_meaning: string;
+  unsourced: string[];
+  unsourced_note: string;
+  notes: string | null;
+  stance: string;
+};
+
+export type IjazRegistry = {
+  total: number;
+  by_level: Record<string, number>;
+  levels: Record<string, string>;
+  claims: { slug: string; claim: string; level: string; proponent: string | null; unsourced: string[] }[];
+  policy: string;
+};
+
+export type NaskhForAyah = {
+  ref: string;
+  claimed_abrogated_by: unknown[];
+  claimed_to_abrogate: unknown[];
+  claim_count: number;
+  framing: string;
 };

@@ -238,6 +238,19 @@ def test_iltifat_compares_words_not_segments(session):
     assert [(c["from_person"], c["to_person"]) for c in shifts] == [("3", "1"), ("1", "3")]
 
 
+def test_a_shift_reports_whole_words_not_fragments(session):
+    """Only some of a word's segments carry person. Joining just those would
+    report قَالُوٓا as the single letter of its subject pronoun — a correct
+    comparison rendered as nonsense."""
+    result = balagha.iltifat(session, surah=2, limit=60)
+    for candidate in result["candidates"]:
+        assert len(candidate["from_word"]) > 1, candidate
+        assert len(candidate["to_word"]) > 1, candidate
+    shift = next(c for c in result["candidates"] if c["ref"] == "2:3")
+    assert shift["from_word"] == "وَيُقِيمُونَ"
+    assert shift["to_word"] == "رَزَقۡنَٰهُمۡ"
+
+
 def test_every_shift_is_labelled_a_suggestion(session):
     """A person shift is a fact about the morphology. Calling it iltifat is a
     reading, and the payload must never blur the two."""

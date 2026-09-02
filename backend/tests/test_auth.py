@@ -148,3 +148,31 @@ def test_auth_disabled_yields_a_labelled_local_admin(monkeypatch):
     assert payload["auth_enabled"] is False
     assert payload["role"] == "admin"
     assert "auth disabled" in payload["display_name"]
+
+
+def test_the_openapi_schema_can_be_built():
+    """A regression that took out the whole schema, silently.
+
+    ``require_role`` imports ``Request`` inside the factory, and the module uses
+    ``from __future__ import annotations`` — so the parameter annotation was the
+    string "Request" with nothing able to resolve it. FastAPI tolerated that at
+    call time, so every route worked and every test passed; Pydantic could not
+    build a schema from it, so ``/openapi.json`` returned 500 and took ``/docs``
+    and every generated client with it.
+
+    Nothing else in the suite touches the schema, which is exactly why this is
+    here.
+    """
+    from fastapi.testclient import TestClient
+
+    from qra.api.main import app
+
+    with TestClient(app) as client:
+        response = client.get("/openapi.json")
+    assert response.status_code == 200, response.text[:400]
+    paths = response.json()["paths"]
+    # Every router is represented, so a future forward-ref break is caught
+    # wherever it happens rather than only in the security module.
+    assert len(paths) > 100
+    for prefix in ("/analysis", "/grammar", "/community", "/auth", "/corpus"):
+        assert any(path.startswith(prefix) for path in paths), prefix
