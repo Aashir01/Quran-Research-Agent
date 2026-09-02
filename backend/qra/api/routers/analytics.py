@@ -15,6 +15,7 @@ from qra.analytics import cooccurrence as cooccurrence_mod
 from qra.analytics import distribution as distribution_mod
 from qra.analytics import mutashabihat as mutashabihat_mod
 from qra.analytics import narrative as narrative_mod
+from qra.analytics import transfer as transfer_mod
 from qra.analytics.hypothesis import (
     compile_hypothesis,
     guard_notes,
@@ -50,11 +51,26 @@ def timeline(
 
 @router.get("/cooccurrence")
 def cooccurrence(
-    root_a: str, root_b: str, scope: str = "ayah", session: Session = Depends(get_session)
+    root_a: str,
+    root_b: str,
+    scope: str = "ayah",
+    background: bool = False,
+    session: Session = Depends(get_session),
 ) -> dict:
+    """Association for one root pair, with the background-corpus question attached.
+
+    Pass ``background=true`` to run the hadith comparison inline; it is a full
+    scan, so by default the payload carries the offer rather than the answer.
+    """
     payload = cooccurrence_mod.associate(session, root_a, root_b, scope=scope)
     if not payload.get("found"):
         raise HTTPException(404, f"roots not found: {payload.get('missing')}")
+    if background:
+        payload["background_check"] = transfer_mod.compare_pair(session, root_a, root_b)
+    else:
+        # WP-34: the question travels with the finding. A co-occurrence read
+        # without it is one that may be about Arabic rather than about the Qur'an.
+        payload["background_check"] = transfer_mod.offer(root_a, root_b)
     return payload
 
 

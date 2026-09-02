@@ -1022,3 +1022,104 @@ class AsbabReport(Base):
         ),
         Index("ix_asbab_lookup", "ayah_id", "status"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Layer 7: analysis engines (Track D)
+# ---------------------------------------------------------------------------
+
+
+class SandboxSession(Base):
+    """A numerical-pattern session, quarantined by construction (WP-33).
+
+    One interviewee abandoned research on the muqatta'at and their numerical
+    patterns because it was mostly guesswork. That instinct was right, and the
+    tool should let him return to it *safely* rather than hand him a faster way
+    to fool himself.
+
+    So the session is the unit, not the test. Every hypothesis run inside it is
+    counted, the whole family is Benjamini-Hochberg corrected together, and the
+    count of everything tried is permanent — you cannot run forty tests, keep
+    the two that looked good, and present them as two tests.
+    """
+
+    __tablename__ = "sandbox_session"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(300))
+    # What the researcher said they were looking for, before looking.
+    intent: Mapped[str] = mapped_column(Text, default="")
+    tests_run: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = _now()
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    tests: Mapped[list[SandboxTest]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class SandboxTest(Base):
+    """One counting claim, pre-registered before it was run."""
+
+    __tablename__ = "sandbox_test"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("sandbox_session.id", ondelete="CASCADE"), index=True
+    )
+    # The claim, and the null model, both stated before the count is known.
+    claim: Mapped[str] = mapped_column(Text)
+    null_model: Mapped[str] = mapped_column(Text)
+    spec: Mapped[dict] = mapped_column(JSONType, default=dict)
+    registered_at: Mapped[datetime] = _now()
+
+    # Filled in when it runs. Null until then — which is what makes
+    # pre-registration meaningful rather than decorative.
+    observed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    expected: Mapped[float | None] = mapped_column(Float, nullable=True)
+    p_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    corrected_p: Mapped[float | None] = mapped_column(Float, nullable=True)
+    within_chance: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    ran_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    session: Mapped[SandboxSession] = relationship(back_populates="tests")
+
+
+class NaskhClaim(Base):
+    """An abrogation *claim*, with its claimant (WP-30).
+
+    Abrogation is not a property of an ayah. It is something a named scholar
+    asserted in a named work, and other named scholars rejected. The schema
+    enforces that: ``claimant`` and ``source_work`` are non-nullable, so there
+    is no code path that marks a verse abrogated on nobody's authority.
+    """
+
+    __tablename__ = "naskh_claim"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # The verse said to be abrogated, and the one said to abrogate it.
+    abrogated_ayah_id: Mapped[int] = mapped_column(ForeignKey("ayah.id"), index=True)
+    abrogating_ayah_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ayah.id"), nullable=True, index=True
+    )
+    # Never nullable. This is the whole point of the table.
+    claimant: Mapped[str] = mapped_column(String(256))
+    source_work: Mapped[str] = mapped_column(String(256))
+    basis: Mapped[str] = mapped_column(Text, default="")
+    # ruling | recitation | both — the classical tripartite distinction.
+    kind: Mapped[str] = mapped_column(String(24), default="ruling")
+    # Named scholars who rejected this specific claim.
+    rejected_by: Mapped[list] = mapped_column(JSONType, default=list)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind in ('ruling','recitation','both')", name="ck_naskh_kind"
+        ),
+        CheckConstraint("length(claimant) > 0", name="ck_naskh_claimant_present"),
+        CheckConstraint("length(source_work) > 0", name="ck_naskh_source_present"),
+    )

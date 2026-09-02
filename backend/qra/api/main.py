@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from qra import ops
 from qra.api.routers import (
+    analysis,
     analytics,
     auth,
     community,
@@ -62,6 +63,7 @@ app.include_router(auth.router)
 app.include_router(corpus.router)
 app.include_router(search.router)
 app.include_router(analytics.router)
+app.include_router(analysis.router)
 app.include_router(workspace.router)
 app.include_router(community.router)
 app.include_router(grammar.router)
