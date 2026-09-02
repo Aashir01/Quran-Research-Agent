@@ -39,6 +39,7 @@ const PAGES = [
   { path: "/", label: "Search the corpus", hint: "root, phrase and translation search" },
   { path: "/workbench", label: "Hypothesis workbench", hint: "state a claim, see it tested" },
   { path: "/patterns", label: "Patterns", hint: "narrative, conditionals, mutashabihat" },
+  { path: "/grammar", label: "Grammar search", hint: "structural queries over the morphology" },
   { path: "/community", label: "The commons", hint: "shared research, questions and corrections" },
   { path: "/notes", label: "Notebook", hint: "anchored notes and backlinks" },
   { path: "/research", label: "Research runs", hint: "agent runs and their critic reports" },

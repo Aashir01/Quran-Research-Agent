@@ -120,6 +120,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
           );
         })}
 
+        <Link
+          href="/grammar"
+          className="navitem"
+          aria-current={isActive("/grammar") ? "page" : undefined}
+        >
+          <span className="icon">
+            <Icon.type size={20} />
+          </span>
+          {t("Grammar", "نحو")}
+        </Link>
+
         <div className="rail-foot">
           {reviewLoad !== null && (
             <Link

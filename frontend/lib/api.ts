@@ -294,6 +294,13 @@ export const api = {
     ),
   discussionForAyah: (surah: number, ayah: number) =>
     request<PostDto[]>(`/community/ayah/${surah}/${ayah}`),
+  // --- grammar search ---
+  grammarSearch: (q: string, limit = 40, offset = 0) =>
+    request<GrammarResult>(
+      `/grammar/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`,
+    ),
+  grammarVocabulary: () => request<GrammarVocabulary>("/grammar/vocabulary"),
+
   // --- reviewer ---
   me: () =>
     request<{ user_id: number; email: string; role: string; display_name: string; auth_enabled: boolean }>(
@@ -443,6 +450,38 @@ export type CommentDto = {
   created_at: string;
   can_edit: boolean;
   replies: CommentDto[];
+};
+
+export type GrammarResult = {
+  query: string;
+  /** Plain-English reading of what was compiled, shown before any results. */
+  reading: string;
+  total_matches: number;
+  total_ayat: number;
+  by_revelation_place: Record<string, number>;
+  /** Always true — grammar search counts every match in the corpus. */
+  exhaustive: boolean;
+  hits: {
+    ayah_id: number;
+    ref: string;
+    surah: string;
+    revelation_place: string;
+    text: string;
+  }[];
+  returned: number;
+  truncated: boolean;
+  note: string;
+};
+
+export type GrammarVocabulary = {
+  pos_classes: Record<string, string>;
+  features: Record<string, string[]>;
+  counts: Record<string, Record<string, number>>;
+  tags: Record<string, number>;
+  keys: string[];
+  scopes: string[];
+  operators: Record<string, string>;
+  examples: { query: string; asks: string }[];
 };
 
 export type FlagDto = {
