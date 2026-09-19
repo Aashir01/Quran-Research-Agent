@@ -322,9 +322,24 @@ def hubs(session: Session, *, limit: int = 25) -> dict:
             }
         )
     scored.sort(key=lambda row: -row["narrations"])
+    all_narrations = sum(row["narrations"] for row in scored)
+    for row in scored[:limit]:
+        # A hub's raw count is unreadable on its own — 2,530 narrations means
+        # nothing until you know it is 1.5% of every chain position in the
+        # corpus, spread over 20,615 names.
+        row["share_of_all_positions"] = (
+            round(row["narrations"] / all_narrations, 5) if all_narrations else 0.0
+        )
     return {
         "narrators_total": len(names),
         "edges_total": sum(len(v) for v in forward.values()),
+        "chain_positions_total": all_narrations,
+        "mean_narrations_per_name": (
+            round(all_narrations / len(names), 2) if names else 0.0
+        ),
+        # This is the top slice of a long tail, not the graph.
+        "exhaustive": False,
+        "returned": min(limit, len(scored)),
         "hubs": scored[:limit],
         "measure": "weighted degree over the transmission graph",
         "caveat": (

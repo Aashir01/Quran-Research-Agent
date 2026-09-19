@@ -609,8 +609,18 @@ def prosody(session: Session, *, limit: int = 20) -> dict:
             }
             for p in ranked[-limit:]
         ],
+        "total_ayat": sum(endings.values()),
+        "distinct_endings": len([e for e in endings if e]),
         "commonest_endings": [
-            {"ending": e, "ayat": n} for e, n in endings.most_common(15) if e
+            {
+                "ending": e,
+                "ayat": n,
+                # A bare count is unreadable here: 1,756 verses means nothing
+                # without the 6,236 it is drawn from.
+                "share": round(n / max(sum(endings.values()), 1), 4),
+            }
+            for e, n in endings.most_common(15)
+            if e
         ],
         "method": (
             "The fasila is taken as the final two consonants of the last word, with the "

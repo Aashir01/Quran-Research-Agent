@@ -151,6 +151,11 @@ def iltifat(
 
     affected = {s.ayah_id for s in shifts}
     total_ayat = session.scalar(select(func.count()).select_from(Ayah)) or 6236
+    # The corpus-wide rate, computed even when the query is scoped to one surah.
+    # It used to be reported only for unscoped queries, so the common case — a
+    # researcher looking at a single surah — got a raw count of shifts with
+    # nothing saying that half the corpus has one.
+    corpus_affected = len(_affected_ayat(session))
     return {
         "feature": "iltifat",
         "arabic": "التفات",
@@ -158,6 +163,13 @@ def iltifat(
         "total_shifts": len(shifts),
         "ayat_affected": len(affected),
         "share_of_scope": round(len(affected) / total_ayat, 4) if not surah else None,
+        "corpus_baseline_rate": round(corpus_affected / total_ayat, 4),
+        "baseline_note": (
+            f"{corpus_affected:,} of {total_ayat:,} ayat in the whole corpus contain at least "
+            f"one person shift ({corpus_affected / total_ayat:.1%}). Any count below is to be "
+            "read against that — on its own, 'this ayah shifts person' is close to no "
+            "information."
+        ),
         "scope": {"surah": surah, "revelation_place": revelation_place},
         "exhaustive": True,
         "candidates": [s.to_dict() for s in shifts[offset : offset + limit]],

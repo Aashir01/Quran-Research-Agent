@@ -31,7 +31,10 @@ from qra.arabic import search_form
 from qra.citations import ayah_citation, hadith_citation, translation_citation
 from qra.models import Ayah, Edition, Hadith, TafsirEntry, Translation
 
-PLACEHOLDER_RE = re.compile(r"\{\{(?P<kind>[a-z_]+):(?P<ref>[^}|]+)(?:\|(?P<arg>[^}]+))?\}\}")
+# The ref group allows an *empty* match so that `{{ayah:}}` is recognised and
+# refused rather than passing through as literal braces into a published post.
+# Every placeholder-shaped thing now either resolves or reports.
+PLACEHOLDER_RE = re.compile(r"\{\{(?P<kind>[a-z_]+):(?P<ref>[^}|]*)(?:\|(?P<arg>[^}]+))?\}\}")
 
 # Any word containing Arabic-block characters. Classification happens per word
 # (see _scripture_runs) rather than per regex match, because a fabricated verse
@@ -105,8 +108,22 @@ class RenderedOutput:
 
 
 def _parse_ref(ref: str) -> tuple[int, int]:
-    surah, _, ayah = ref.partition(":")
-    return int(surah.strip()), int(ayah.strip())
+    """Split ``2:255`` into its numbers, or refuse in this module's own language.
+
+    This used to let ``int()`` raise a bare ValueError, which escaped ``render``
+    entirely — ``substitute`` catches only RenderError. A researcher typing
+    ``{{ayah:foo}}`` in a post got a 500 instead of the violation the guard is
+    built to produce, and so did anything else that renders human-written text.
+    """
+    surah, separator, ayah = ref.partition(":")
+    if not separator:
+        raise RenderError(f"'{ref}' is not a reference — expected surah:ayah, as in 2:255")
+    try:
+        return int(surah.strip()), int(ayah.strip())
+    except ValueError as exc:
+        raise RenderError(
+            f"'{ref}' is not a reference — expected surah:ayah, as in 2:255"
+        ) from exc
 
 
 def _render_ayah(session: Session, ref: str) -> tuple[str, dict]:

@@ -143,6 +143,14 @@ def associate(session: Session, root_a: str, root_b: str, *, scope: str = "ayah"
     payload = association.to_dict()
     payload["found"] = True
     payload["shared_units"] = sorted(both)[:200]
+    payload["provenance"] = "computed"
+    payload["caveat"] = (
+        "PMI rises sharply for rare pairs — two roots that occur five times each and "
+        "share three ayat will outscore a pervasive, meaningful association — which is "
+        "why the significance block beside it is the figure to read, not the PMI. "
+        "Co-occurrence is also not direction: it says these roots share verses, not that "
+        "one bears on the other."
+    )
     return payload
 
 

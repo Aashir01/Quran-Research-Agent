@@ -29,7 +29,15 @@ from sqlalchemy.orm import Session
 
 from qra import tools
 from qra.config import settings
-from qra.models import Ayah, AyahLink, ConditionalStructure, Root, Surah
+from qra.models import (
+    Ayah,
+    AyahLink,
+    ConditionalStructure,
+    Narrator,
+    Root,
+    Segment,
+    Surah,
+)
 
 GOLDEN_PATH = settings.data_dir / "eval" / "golden.jsonl"
 
@@ -138,7 +146,59 @@ EVAL_TOOLS = {
     },
     "render": lambda s, **kw: _render(s, kw["template"]),
     "agent_run": lambda s, **kw: _agent_run(s, **kw),
+    # --- Tracks I and J -------------------------------------------------
+    "rijal_narrator_count": lambda s, **kw: {
+        "value": s.scalar(select(func.count()).select_from(Narrator))
+    },
+    "rijal_hub_rank": lambda s, **kw: _rijal_hub_rank(s, kw["name"], kw.get("within", 20)),
+    "rijal_position_spread": lambda s, **kw: {
+        "value": s.scalar(
+            select(Narrator.position_spread).where(Narrator.display_name == kw["name"])
+        )
+    },
+    "grammar_search": lambda s, **kw: _grammar_count(s, kw["query"]),
+    "surah_profile": lambda s, **kw: _surah_profile(s, kw["surah"], kw["measure"]),
+    "fasila": lambda s, **kw: {
+        "value": __import__(
+            "qra.analytics.textscience", fromlist=["fasila"]
+        ).fasila(kw["text"])
+    },
+    "segment_count": lambda s, **kw: _segment_count(s, **kw),
 }
+
+
+def _rijal_hub_rank(session: Session, name: str, within: int) -> dict:
+    from qra.analytics import rijal
+
+    hubs = rijal.hubs(session, limit=within)["hubs"]
+    names = [h["name"] for h in hubs]
+    return {"present": name in names, "rank": names.index(name) + 1 if name in names else None}
+
+
+def _grammar_count(session: Session, query: str) -> dict:
+    from qra.analytics import grammar
+
+    return {"value": grammar.run(session, query, limit=1)["total_matches"]}
+
+
+def _surah_profile(session: Session, surah: int, measure: str) -> dict:
+    from qra.analytics import textscience
+
+    row = next((p for p in textscience.profiles(session) if p.surah == surah), None)
+    return {"value": getattr(row, measure) if row else None}
+
+
+def _segment_count(session: Session, **filters) -> dict:
+    """Count segments by promoted morphological columns, straight from SQL.
+
+    Deliberately not routed through the query language: this is the independent
+    path the grammar regression cases are checked against, and an eval whose
+    expected value comes from the thing it is testing checks nothing.
+    """
+    stmt = select(func.count()).select_from(Segment)
+    for key, value in filters.items():
+        stmt = stmt.where(getattr(Segment, key) == value)
+    return {"value": session.scalar(stmt) or 0}
 
 
 def _render(session: Session, template: str) -> dict:
@@ -191,6 +251,14 @@ def score(item: dict, payload: dict) -> tuple[bool, str, Any, Any]:
 
     if kind == "count":
         actual = _dig(payload, expect["field"])
+        # A measured quantity — a mean, a ratio — cannot be compared for exact
+        # equality against a value written into a file: 3.333333 will never
+        # equal 3.3333333333333335, and a case that fails for that reason is
+        # noise that trains the reader to ignore failures.
+        tolerance = expect.get("tolerance")
+        if tolerance is not None and isinstance(actual, (int, float)):
+            within = abs(actual - expect["value"]) <= tolerance
+            return within, f"within {tolerance}", expect["value"], actual
         return actual == expect["value"], "exact count", expect["value"], actual
 
     if kind == "min_value":

@@ -245,6 +245,7 @@ def topic(session: Session, slug: str, *, limit: int = 40) -> dict:
     recorded = positions(session, slug)
     schools = sorted({p["madhhab"] for p in recorded})
 
+    total_ayat = session.scalar(select(func.count()).select_from(Ayah)) or 1
     return {
         "slug": spec.slug,
         "label_en": spec.label_en,
@@ -253,6 +254,20 @@ def topic(session: Session, slug: str, *, limit: int = 40) -> dict:
         "roots": list(spec.roots),
         "ayat_with_topic_vocabulary": len(ayat),
         "ayat_also_carrying_a_legal_marker": len(legal),
+        # Without this the topic count is unreadable: 210 marked verses sounds
+        # like a lot until you know that 1,946 of 6,236 ayat carry a legal
+        # marker of some kind.
+        "corpus_ayat": total_ayat,
+        "corpus_ayat_with_any_legal_marker": len(any_marker),
+        "expected_if_markers_were_independent": round(
+            len(ayat) * len(any_marker) / total_ayat, 1
+        ),
+        "baseline_note": (
+            f"{len(any_marker):,} of {total_ayat:,} ayat carry some legal marker. If this "
+            f"topic's vocabulary were spread independently of them, about "
+            f"{len(ayat) * len(any_marker) / total_ayat:.0f} of its "
+            f"{len(ayat):,} verses would be marked by chance."
+        ),
         "markers_present": {
             name: len(ayat & ids) for name, ids in marked.items() if ayat & ids
         },

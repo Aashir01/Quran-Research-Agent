@@ -140,6 +140,31 @@ def cmd_seed(args) -> int:
     return 0
 
 
+def cmd_audit(args) -> int:
+    """Check that no analytic surface reports a number without a baseline."""
+    from qra.audit import audit, render_report
+
+    with session_scope() as session:
+        report = audit(session)
+    print(render_report(report), flush=True)
+    return 0 if report["flagged"] == 0 else 1
+
+
+def cmd_redteam(args) -> int:
+    """Attack this build's guarantees and report what held.
+
+    Exits non-zero on a breach *or* a skip: an attack that could not be run has
+    demonstrated nothing, and treating it as a pass is how a red-team suite
+    turns into decoration.
+    """
+    from qra.redteam import render_report, run_redteam
+
+    with session_scope() as session:
+        report = run_redteam(session, only=args.only)
+    print(render_report(report), flush=True)
+    return 0 if report["clean"] else 1
+
+
 def cmd_lexicon(args) -> int:
     """Report how much of the corpus the loaded lexicons actually reach."""
     from qra.analytics import fields
@@ -326,6 +351,14 @@ def main(argv: list[str] | None = None) -> int:
         help="which corpora to put in the BM25 index",
     )
     p.set_defaults(func=cmd_ingest)
+
+    sub.add_parser(
+        "audit", help="check every analytic surface carries its baseline"
+    ).set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("redteam", help="attack this build's guarantees")
+    p.add_argument("--only", nargs="+", default=None, help="run only these attack ids")
+    p.set_defaults(func=cmd_redteam)
 
     sub.add_parser(
         "lexicon", help="report lexicon coverage against the corpus roots"
