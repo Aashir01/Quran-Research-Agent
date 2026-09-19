@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from qra.analytics import takhrij
+from qra.analytics import rijal, takhrij
 from qra.analytics.isnad import split
 from qra.db import get_session
 from qra.models import Hadith
@@ -140,3 +140,42 @@ def asbab_coverage(session: Session = Depends(get_session)) -> dict:
     from qra.analytics import asbab
 
     return asbab.coverage(session)
+
+
+@router.get("/{collection}/{number}/common-link")
+def common_link(
+    collection: str,
+    number: str,
+    trials: int = 400,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Where the chains of this tradition converge — tested against a null model.
+
+    The bundle is assembled by takhrij, then the narrator covering the most
+    chains is compared against bundles of the same size and shape resampled from
+    the whole corpus. A convergence that random bundles reproduce is not a
+    finding, and this is where most common-link arguments stop short.
+    """
+    row = _resolve(session, collection, number)
+    bundle = takhrij.parallels_for(session, row.id)
+    ids = [row.id] + [p["hadith_id"] for p in bundle.get("parallels", [])]
+    try:
+        payload = rijal.common_link(session, ids, trials=max(50, min(trials, 2000)))
+    except rijal.RijalError as exc:
+        raise HTTPException(
+            422,
+            detail={
+                "message": str(exc),
+                "bundle_size": len(ids),
+                "note": (
+                    "Takhrij found too few parallels to test convergence. That is a "
+                    "statement about this bundle, not about the tradition."
+                ),
+            },
+        ) from exc
+    payload["bundle"] = {
+        "seed": f"{collection} {number}",
+        "size": len(ids),
+        "assembled_by": "takhrij shingle overlap",
+    }
+    return payload

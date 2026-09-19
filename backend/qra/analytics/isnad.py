@@ -181,8 +181,16 @@ def narrators(isnad_text: str) -> list[str]:
     folded = search_form(isnad_text)
     if not folded:
         return []
+    # Pad so a verb at the very start or end still matches: without this a chain
+    # opening "حدثنا أبو بكر بن أبي شيبة" keeps the verb glued to the name, and
+    # that transmitter ends up as two separate nodes — one with the verb, one
+    # without — in every graph built from it.
+    folded = f" {folded} "
     for verb in NARRATION_VERBS:
-        folded = folded.replace(f" {verb} ", " | ")
+        # `و` prefixes the verb whenever a collector stacks parallel chains
+        # ("وحدثنا قتيبة") — and it is written joined, so the bare verb never
+        # matches and the whole phrase survives as a narrator name.
+        folded = folded.replace(f" و{verb} ", " | ").replace(f" {verb} ", " | ")
     folded = folded.replace(" عن ", " | ").replace(" سمعت ", " | ")
     parts = [
         " ".join(w for w in _SPLIT_TOKENS.split(part) if w and w not in ("قال", "قالت"))
@@ -196,3 +204,27 @@ def narrators(isnad_text: str) -> list[str]:
         if name not in out:
             out.append(name)
     return out
+
+
+# `عن أبيه` — "from his father" — is a relative reference, not a name. It is
+# extremely common and resolving it needs to know whose father, which needs
+# biographical data. Treating these as narrators put "his father" at the top of
+# the transmission graph with 3,488 narrations, as though one man had taught
+# half the corpus.
+RELATIVE_REFERENCES = frozenset(
+    {
+        "ابيه", "ابي", "امه", "جده", "جدته", "عمه", "عمته", "خاله", "خالته",
+        "اخيه", "اخته", "ابنه", "ابنته", "زوجها", "زوجته", "مولاه", "بعض اصحابه",
+        "رجل", "رجل من اصحاب النبي", "بعضهم", "غيره",
+    }
+)
+
+
+def is_relative_reference(name: str) -> bool:
+    """Is this a kinship placeholder rather than a name?
+
+    Chains containing one cannot be resolved into people without external
+    biographical data, and a graph that silently treats them as nodes is a
+    graph with a fictional hub in the middle of it.
+    """
+    return search_form(name).strip() in RELATIVE_REFERENCES

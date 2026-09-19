@@ -1354,3 +1354,140 @@ class MessageReaction(Base):
     __table_args__ = (
         UniqueConstraint("message_id", "user_id", "emoji", name="uq_reaction_once"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Track I: rijal and the transmission graph
+# ---------------------------------------------------------------------------
+
+
+class Narrator(Base):
+    """A name occurring in an isnad, promoted to an entity.
+
+    Corpus-derived, and that word is doing real work. These rows are built by
+    segmenting chains on the transmission particles, so a narrator here is a
+    *name*, not a person. Two men called Muhammad ibn Ishaq are one node.
+
+    That conflation is the central known weakness of every computational isnad
+    study, so rather than hide it this table carries the evidence for it:
+    ``depth_spread`` records how widely the name ranges across chain positions,
+    and a name that appears both beside a Companion and beside a ninth-century
+    collector is almost certainly several people. :func:`qra.analytics.rijal.
+    conflation_report` ranks them.
+
+    Biographical fields stay null until a rijal source is loaded. Inventing a
+    death year to make a generation estimate look solid would be the same
+    failure as inventing scripture, one table further out.
+    """
+
+    __tablename__ = "narrator"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # search_form of the name: the key everything joins on.
+    canonical: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    # The commonest surface spelling, for display.
+    display_name: Mapped[str] = mapped_column(String(256))
+    variants: Mapped[list] = mapped_column(JSONType, default=list)
+
+    narration_count: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    # Raw chain positions this name occupies, counted from the Prophet end.
+    min_depth: Mapped[int] = mapped_column(Integer, default=0)
+    max_depth: Mapped[int] = mapped_column(Integer, default=0)
+    mean_depth: Mapped[float] = mapped_column(Float, default=0.0)
+    depth_spread: Mapped[int] = mapped_column(Integer, default=0, index=True)
+
+    # Position normalised to the chain it sits in: 0.0 at the Prophet end, 1.0
+    # at the collector. Raw depth cannot be compared across chains — an isnad of
+    # four links and one of twenty put their collector at depth 3 and depth 19 —
+    # so raw spread flagged every collector as conflated and measured nothing
+    # but chain length.
+    #
+    # `position_spread` is the *interquartile* range, not max - min. A name
+    # appearing 2,500 times will land at both extremes at least once, so min/max
+    # saturated at 1.0 for every major transmitter and ranked them all as
+    # equally suspect. The IQR describes where the name actually sits.
+    min_position: Mapped[float] = mapped_column(Float, default=0.0)
+    max_position: Mapped[float] = mapped_column(Float, default=0.0)
+    mean_position: Mapped[float] = mapped_column(Float, default=0.0)
+    position_spread: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+
+    # Only ever set from a loaded rijal edition, never inferred.
+    death_year_hijri: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    generation: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    provenance: Mapped[str] = mapped_column(String(24), default="corpus_derived")
+    created_at: Mapped[datetime] = _now()
+
+
+class NarratorGrading(Base):
+    """One critic's verdict on one narrator.
+
+    Same shape as :class:`NaskhClaim`, for the same reason. Reliability is not a
+    property of a man; it is something al-Bukhari or Ibn Hajar or al-Dhahabi
+    said about him, and they disagree constantly. ``critic`` and ``source_work``
+    are non-nullable, so nothing can be graded on nobody's authority.
+
+    Ships empty.
+    """
+
+    __tablename__ = "narrator_grading"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    narrator_id: Mapped[int] = mapped_column(ForeignKey("narrator.id"), index=True)
+    # thiqa | saduq | maqbul | layyin | da'if | matruk | majhul | kadhdhab
+    grade: Mapped[str] = mapped_column(String(32), index=True)
+    critic: Mapped[str] = mapped_column(String(256))
+    source_work: Mapped[str] = mapped_column(String(256))
+    reasoning: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("length(critic) > 0", name="ck_grading_critic_present"),
+        CheckConstraint("length(source_work) > 0", name="ck_grading_source_present"),
+    )
+
+
+class ChainPosition(Base):
+    """One narrator's place in one hadith's chain.
+
+    ``depth`` counts from the Prophet end, so depth 0 is the Companion and the
+    collector sits at the far end. Counting this way makes generations
+    comparable across collections of different lengths, which is what the
+    common-link argument needs.
+    """
+
+    __tablename__ = "chain_position"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hadith_id: Mapped[int] = mapped_column(ForeignKey("hadith.id"), index=True)
+    narrator_id: Mapped[int] = mapped_column(ForeignKey("narrator.id"), index=True)
+    depth: Mapped[int] = mapped_column(Integer, index=True)
+    collection: Mapped[str] = mapped_column(String(32), index=True)
+
+    __table_args__ = (
+        UniqueConstraint("hadith_id", "depth", name="uq_chain_slot"),
+        Index("ix_chain_narrator_depth", "narrator_id", "depth"),
+    )
+
+
+class TransmissionEdge(Base):
+    """`student` received from `teacher`, aggregated across the corpus.
+
+    Derived from :class:`ChainPosition` rather than stored independently, but
+    materialised because the graph queries that matter — centrality, common-link
+    search — are edge-shaped and recomputing the join each time is wasteful on a
+    corpus this size.
+    """
+
+    __tablename__ = "transmission_edge"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("narrator.id"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("narrator.id"), index=True)
+    weight: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    collections: Mapped[list] = mapped_column(JSONType, default=list)
+
+    __table_args__ = (
+        UniqueConstraint("teacher_id", "student_id", name="uq_transmission_edge"),
+    )

@@ -54,10 +54,20 @@ def cmd_licenses(args) -> int:
     return 0
 
 
+INGEST_STEPS = ("all", "quran", "morphology", "translations", "tafsir", "hadith", "indexes")
+
+
 def cmd_ingest(args) -> int:
     from qra import ingest
 
     steps = args.steps or ["all"]
+    unknown = [step for step in steps if step not in INGEST_STEPS]
+    if unknown:
+        print(
+            f"unknown step(s): {', '.join(unknown)}. Choose from {', '.join(INGEST_STEPS)}.",
+            file=sys.stderr,
+        )
+        return 2
     run_all = "all" in steps
     results: dict = {}
 
@@ -127,6 +137,20 @@ def cmd_seed(args) -> int:
     with session_scope() as session:
         result = ijaz.seed(session)
     print("ijaz:", result, flush=True)
+    return 0
+
+
+def cmd_rijal(args) -> int:
+    """Project the hadith corpus into the transmission graph."""
+    from qra.analytics import rijal
+
+    with session_scope() as session:
+        if args.action == "build":
+            result = rijal.build(session, limit=args.limit)
+        else:
+            result = rijal.summary(session)
+    for key, value in result.items():
+        print(f"{key}: {value}", flush=True)
     return 0
 
 
@@ -262,11 +286,14 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_licenses)
 
     p = sub.add_parser("ingest", help="load corpus data")
+    # `choices` with `nargs="*"` rejects the empty list, so `qra ingest` with no
+    # steps failed its own validation while still exiting 0 — `make ingest`
+    # looked like it had worked and loaded nothing. Validated by hand instead.
     p.add_argument(
         "steps",
         nargs="*",
-        choices=["all", "quran", "morphology", "translations", "tafsir", "hadith", "indexes"],
-        help="defaults to all",
+        metavar="STEP",
+        help=f"any of: {', '.join(INGEST_STEPS)} (defaults to all)",
     )
     p.add_argument("--force", action="store_true", help="re-download instead of using the cache")
     p.add_argument(
@@ -277,6 +304,11 @@ def main(argv: list[str] | None = None) -> int:
         help="which corpora to put in the BM25 index",
     )
     p.set_defaults(func=cmd_ingest)
+
+    p = sub.add_parser("rijal", help="build or inspect the isnad transmission graph")
+    p.add_argument("action", nargs="?", default="summary", choices=["build", "summary"])
+    p.add_argument("--limit", type=int, default=None, help="cap narrations, for a quick run")
+    p.set_defaults(func=cmd_rijal)
 
     p = sub.add_parser("seed", help="load code-resident fixtures (the i'jaz claim registry)")
     p.set_defaults(func=cmd_seed)
