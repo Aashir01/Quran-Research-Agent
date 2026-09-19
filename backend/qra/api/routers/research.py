@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session
 from qra.agents.graph import LANGGRAPH_AVAILABLE, run_research
 from qra.agents.llm import status as llm_status
 from qra.agents.render import render
-from qra.api.deps import needs
+from qra.api.deps import needs, principal_or_local
 from qra.db import get_session
 from qra.jobs import enqueue, job_status
 from qra.models import Finding, ResearchRun
+from qra.security.auth import Principal
 from qra.workspace.service import review_finding, review_queue, search_prior_work, submit_for_review
 
 router = APIRouter(prefix="/research", tags=["research"])
@@ -27,7 +28,7 @@ def start_run(
     session: Session = Depends(get_session),
 ) -> dict:
     """Start a multi-agent run. Long runs are queued; short ones can be inline."""
-    prior = search_prior_work(session, question)
+    prior = search_prior_work(session, question, principal=principal)
     if background:
         job = enqueue(
             "research",
@@ -120,9 +121,17 @@ def findings(status: str | None = None, limit: int = 50, session: Session = Depe
 
 
 @router.get("/prior-work")
-def prior_work(q: str, session: Session = Depends(get_session)) -> list[dict]:
-    """"Someone already researched this in March." """
-    return search_prior_work(session, q)
+def prior_work(
+    q: str,
+    principal: Principal = Depends(principal_or_local),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """"Someone already researched this in March."
+
+    Scoped to the caller's organisation — the point is your team's prior work,
+    and another team's is a leak rather than a feature.
+    """
+    return search_prior_work(session, q, principal=principal)
 
 
 @router.post("/findings/{finding_id}/submit")
@@ -139,7 +148,7 @@ def queue(
     principal=needs("reviewer"),
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    return review_queue(session, status=status)
+    return review_queue(session, status=status, principal=principal)
 
 
 @router.post("/findings/{finding_id}/review")

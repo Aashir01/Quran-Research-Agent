@@ -263,6 +263,59 @@ def _content_channel_cannot_be_closed(session: Session) -> bool:
     return wrapped.count(close_tag) == 1 and wrapped.rstrip().endswith(close_tag)
 
 
+# ---------------------------------------------------------------------------
+# 5. One organisation's work stays its own
+# ---------------------------------------------------------------------------
+
+
+def _org_isolation_holds(session: Session) -> bool:
+    """A reviewer in one organisation must not see another's drafts.
+
+    This was live: both listings over Finding ran without an organisation
+    filter, and neither took a principal, so nothing could have filtered.
+    """
+    from sqlalchemy import select
+
+    from qra.models import Finding, Organisation
+    from qra.security.auth import Principal
+    from qra.workspace import service
+
+    probe = "redteam-tenancy-probe"
+    alpha = session.scalar(select(Organisation).where(Organisation.slug == "redteam-alpha"))
+    if alpha is None:
+        alpha = Organisation(name="Redteam Alpha", slug="redteam-alpha")
+        session.add(alpha)
+    beta = session.scalar(select(Organisation).where(Organisation.slug == "redteam-beta"))
+    if beta is None:
+        beta = Organisation(name="Redteam Beta", slug="redteam-beta")
+        session.add(beta)
+    session.flush()
+
+    session.add(
+        Finding(
+            question="a confidential finding belonging to beta",
+            summary="private",
+            org_id=beta.id,
+            fingerprint=probe,
+            review_status="submitted",
+        )
+    )
+    session.commit()
+    try:
+        as_alpha = Principal(
+            user_id=0, email="a@x", role="reviewer", org_id=alpha.id, display_name="alpha"
+        )
+        queue = service.review_queue(session, principal=as_alpha)
+        prior = service.search_prior_work(session, "a confidential finding", principal=as_alpha)
+        leaked = any("belonging to beta" in row["question"] for row in [*queue, *prior])
+        return not leaked
+    finally:
+        session.query(Finding).filter(Finding.fingerprint == probe).delete(
+            synchronize_session=False
+        )
+        session.commit()
+
+
 ATTACKS: tuple[Attack, ...] = (
     Attack(
         "fabricated-plain",
@@ -355,6 +408,13 @@ ATTACKS: tuple[Attack, ...] = (
         "Prompt-injection text inside a tafsir passage",
         "source text steers the agent instead of being read by it",
         _injection_in_source_text_is_flagged,
+    ),
+    Attack(
+        "cross-tenant-listing",
+        "one organisation's work stays its own",
+        "A reviewer in one organisation listing another's unpublished drafts",
+        "unpublished research leaks between teams sharing a deployment",
+        _org_isolation_holds,
     ),
     Attack(
         "content-channel-escape",

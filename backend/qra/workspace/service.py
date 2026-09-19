@@ -419,10 +419,33 @@ def register_topic(
     }
 
 
-def review_queue(session: Session, *, status: str = "submitted") -> list[dict]:
-    rows = session.scalars(
-        select(Finding).where(Finding.review_status == status).order_by(Finding.created_at)
-    ).all()
+def _scope_to_org(stmt, principal):
+    """Restrict a query to the caller's organisation.
+
+    Applied to every listing over authored rows. Without it a reviewer in one
+    organisation saw another's unpublished drafts, and the Librarian's
+    prior-work search surfaced a different team's research — a cross-tenant
+    leak in two of the three places findings are listed.
+
+    A principal with no organisation (a single-team deployment, or auth
+    disabled) sees only the rows that also have none. That is deliberately the
+    strict reading: `org_id IS NULL` meaning "everyone's" is how this kind of
+    filter silently stops filtering.
+    """
+    if principal is None:
+        return stmt
+    if principal.org_id is None:
+        return stmt.where(Finding.org_id.is_(None))
+    return stmt.where(Finding.org_id == principal.org_id)
+
+
+def review_queue(
+    session: Session, *, status: str = "submitted", principal=None
+) -> list[dict]:
+    stmt = _scope_to_org(
+        select(Finding).where(Finding.review_status == status), principal
+    )
+    rows = session.scalars(stmt.order_by(Finding.created_at)).all()
     return [
         {
             "id": f.id,
@@ -482,17 +505,23 @@ def review_finding(
     }
 
 
-def search_prior_work(session: Session, question: str, *, limit: int = 10) -> list[dict]:
-    """"Someone already researched this in March." """
+def search_prior_work(
+    session: Session, question: str, *, limit: int = 10, principal=None
+) -> list[dict]:
+    """"Someone already researched this in March."
+
+    Scoped to the caller's organisation: the point is to surface *your team's*
+    prior work, and surfacing another team's is a leak rather than a feature.
+    """
     terms = [t for t in re.split(r"\W+", question.lower()) if len(t) > 3]
     if not terms:
         return []
     pattern = "|".join(re.escape(t) for t in terms[:6])
+    stmt = _scope_to_org(
+        select(Finding).where(func.lower(Finding.question).op("~")(pattern)), principal
+    )
     rows = session.scalars(
-        select(Finding)
-        .where(func.lower(Finding.question).op("~")(pattern))
-        .order_by(Finding.created_at.desc())
-        .limit(limit)
+        stmt.order_by(Finding.created_at.desc()).limit(limit)
     ).all()
     return [
         {

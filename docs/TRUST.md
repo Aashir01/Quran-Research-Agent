@@ -46,10 +46,26 @@ would mean, so "held" is legible.
 | Exhaustive and ranked are never blurred | a reranked list asked to present itself as complete; a capped count that does not admit the cap |
 | Evidence levels do not drift upward | an i'jaz claim stored at L0, an abrogation claim with no claimant, a legal topic asked for a ruling |
 | Injected instructions are inert | prompt injection inside a tafsir passage; a span that writes the closing delimiter verbatim, assuming the nonce leaked |
+| One organisation's work stays its own | a reviewer in one organisation listing another's unpublished drafts |
 
 **An attack that cannot run is reported as `skipped`, never as held**, and skips
 fail the suite. Counting an unrun attack as a defence is how a red-team suite
 gets greener as the code rots.
+
+### Cross-tenant leak
+
+Adding the fifteenth attack found a live one. `review_queue` and
+`search_prior_work` both listed `Finding` rows with **no organisation filter**,
+and neither function took a principal — so it could not have filtered even if a
+caller had wanted it to. A reviewer in one organisation saw another's
+unpublished drafts, and the Librarian's prior-work search surfaced a different
+team's research.
+
+Both are scoped now. A principal with no organisation sees only rows that also
+have none, which is the strict reading on purpose: `org_id IS NULL` meaning
+"everyone's" is how this kind of filter silently stops filtering.
+
+### The placeholder crash
 
 It found a real bug on the first run. `_parse_ref` raised a bare `ValueError`,
 and `render` catches only `RenderError` — so a researcher typing
