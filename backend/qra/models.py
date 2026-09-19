@@ -1491,3 +1491,117 @@ class TransmissionEdge(Base):
     __table_args__ = (
         UniqueConstraint("teacher_id", "student_id", name="uq_transmission_edge"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Track G: the claim registry
+# ---------------------------------------------------------------------------
+
+
+class Claim(Base):
+    """A research claim, tracked across its whole life.
+
+    A ``Finding`` is what one run produced; a ``Claim`` is an assertion the team
+    stands behind, which may outlive several runs and be revised by later ones.
+    The distinction matters because the thing that decays in a research group is
+    not the evidence — it is the memory of *why* a claim was accepted, and by
+    whom, and what was said against it.
+
+    Status is never overwritten in place. Every change is a
+    :class:`ClaimEvent` with an actor, a timestamp and a reason, so the current
+    status is a projection of a history rather than a value someone set. A
+    registry that only shows the present state cannot answer the question a
+    reviewer actually asks, which is "who decided this, and on what".
+
+    Claims are superseded rather than deleted. A withdrawn claim stays visible
+    with its reason, because the fact that something was once believed and then
+    dropped is exactly what stops it being rediscovered.
+    """
+
+    __tablename__ = "claim"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    statement: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    author_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    org_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organisation.id"), nullable=True, index=True
+    )
+
+    # proposed | under_review | supported | qualified | contested | refuted | withdrawn
+    #
+    # `contested` is a first-class status, not an absence of one. Most registries
+    # force a claim to be either accepted or rejected, which is precisely the
+    # shape this corpus does not have — the classical literature disagrees about
+    # most things worth claiming, and a schema that cannot represent that will be
+    # made to lie.
+    status: Mapped[str] = mapped_column(String(16), default="proposed", index=True)
+
+    # The level the claim is asserted at, on the same scale the agent layer uses.
+    # L0 explicit text, L1 sound transmission, L2 scholarly consensus,
+    # L3 linguistically possible, L4 own inference.
+    evidence_level: Mapped[str] = mapped_column(String(4), default="L4", index=True)
+
+    ayah_ids: Mapped[list] = mapped_column(JSONType, default=list)
+    root_ids: Mapped[list] = mapped_column(JSONType, default=list)
+    citations: Mapped[list] = mapped_column(JSONType, default=list)
+    # Objections raised against it, computed or human, kept with the claim
+    # rather than in a separate place nobody opens.
+    objections: Mapped[list] = mapped_column(JSONType, default=list)
+
+    finding_id: Mapped[int | None] = mapped_column(
+        ForeignKey("finding.id"), nullable=True, index=True
+    )
+    hypothesis_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hypothesis.id"), nullable=True, index=True
+    )
+    superseded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("claim.id"), nullable=True, index=True
+    )
+
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('proposed','under_review','supported','qualified',"
+            "'contested','refuted','withdrawn')",
+            name="ck_claim_status",
+        ),
+        CheckConstraint(
+            "evidence_level in ('L0','L1','L2','L3','L4')", name="ck_claim_level"
+        ),
+        CheckConstraint("length(statement) > 0", name="ck_claim_statement_present"),
+    )
+
+
+class ClaimEvent(Base):
+    """One thing that happened to a claim.
+
+    The append-only history behind :attr:`Claim.status`. ``reason`` is
+    non-nullable: a status change with no reason is the thing this table exists
+    to make impossible, because six months later it is indistinguishable from
+    an accident.
+    """
+
+    __tablename__ = "claim_event"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    claim_id: Mapped[int] = mapped_column(ForeignKey("claim.id"), index=True)
+    # proposed | status_changed | evidence_added | objection_raised |
+    # objection_answered | superseded | comment
+    kind: Mapped[str] = mapped_column(String(24), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    from_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    reason: Mapped[str] = mapped_column(Text)
+    detail: Mapped[dict] = mapped_column(JSONType, default=dict)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("length(reason) > 0", name="ck_claim_event_reason_present"),
+        Index("ix_claim_event_time", "claim_id", "created_at"),
+    )

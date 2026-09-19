@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
@@ -122,4 +122,42 @@ def capabilities() -> dict:
             },
         },
         "languages": ["en", "ur"],
+    }
+
+
+# --- Track F: citation styles ----------------------------------------------
+
+
+@router.post("/bibliography")
+def bibliography(
+    citations: list[dict] = Body(...),
+    style: str = Body("chicago"),
+) -> dict:
+    """Render a deduplicated bibliography in a published citation style.
+
+    A researcher who cannot paste a citation into a submission will retype it,
+    and a retyped citation is where the surah number drifts by one.
+    """
+    from qra.export.styles import StyleError
+    from qra.export.styles import bibliography as render
+
+    try:
+        return render(citations, style=style)
+    except StyleError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/citation-styles")
+def citation_styles() -> dict:
+    from qra.export.styles import STYLES
+
+    return {
+        "styles": list(STYLES),
+        "default": "chicago",
+        "notes": {
+            "chicago": "Chicago notes-and-bibliography — the default in Islamic studies monographs",
+            "mla": "used by literature and comparative-religion departments",
+            "ijmes": "International Journal of Middle East Studies — the field's nearest standard for Arabic material",
+            "plain": "the app's own readable format, for notes and screens",
+        },
     }
