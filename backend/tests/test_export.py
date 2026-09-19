@@ -115,3 +115,82 @@ def test_pdf_refuses_rather_than_emitting_boxes_when_no_arabic_font(monkeypatch,
     with pytest.raises(renderers.ExportUnavailable) as exc:
         renderers.to_pdf(document, tmp_path / "out.pdf")
     assert "HTML export" in str(exc.value)
+
+
+# --- Obsidian-flavoured markdown (Track F) ---------------------------------
+
+
+def _obsidian_doc():
+    from qra.export.document import Block, Document
+
+    return Document(
+        title="Sabr in the Madani surahs",
+        blocks=[
+            Block(kind="ayah", text="وَٱسْتَعِينُوا۟ بِٱلصَّبْرِ", ref="2:45"),
+            Block(kind="text", text="Compare 2:153 and 3:200, but not 999:1 or 2:400."),
+            Block(kind="note", text="A suggestion.", provenance="system_suggested"),
+        ],
+        licence="corpus build 2:255 — public domain",
+    )
+
+
+def test_obsidian_export_wikilinks_ayah_references():
+    """A vault accumulates one note per verse, and the backlinks pane answers
+    'what else have I written about this verse' — the question a research vault
+    exists for, and the one plain markdown cannot answer."""
+    from qra.export.renderers import to_obsidian
+
+    out = to_obsidian(_obsidian_doc())
+    assert "[[Quran 2:45]]" in out
+    assert "[[Quran 2:153]]" in out
+    assert "[[Quran 3:200]]" in out
+
+
+def test_obsidian_export_does_not_link_impossible_references():
+    """There is no surah 999, and no surah has 400 ayat."""
+    from qra.export.renderers import to_obsidian
+
+    out = to_obsidian(_obsidian_doc())
+    assert "[[Quran 999:1]]" not in out
+    assert "[[Quran 2:400]]" not in out
+    assert "999:1" in out
+
+
+def test_obsidian_export_leaves_fenced_blocks_alone():
+    """The licence notice is fenced and carries a build number shaped exactly
+    like a reference."""
+    from qra.export.renderers import to_obsidian
+
+    out = to_obsidian(_obsidian_doc())
+    assert "corpus build 2:255 — public domain" in out
+
+
+def test_obsidian_export_does_not_link_the_timestamp():
+    """`d:d` is also how a clock renders. The first version turned '16:36 UTC'
+    into a link to surah 16 — and 16:36 is a real ayah, so no pattern can tell
+    them apart. The footer is held back and re-appended instead."""
+    from qra.export.renderers import to_obsidian
+
+    document = _obsidian_doc()
+    document.generated_at = "2026-09-19 16:36 UTC"
+    out = to_obsidian(document)
+    assert out.rstrip().endswith("*2026-09-19 16:36 UTC*")
+    assert "[[Quran 16:36]]" not in out
+
+
+def test_obsidian_export_carries_queryable_frontmatter():
+    """A vault of a hundred exports is only searchable if the exports are
+    queryable."""
+    from qra.export.renderers import to_obsidian
+
+    out = to_obsidian(_obsidian_doc())
+    assert out.startswith("---\n")
+    assert "tags: [quran-research]" in out
+    assert '"2:45"' in out
+    assert "system_suggested" in out
+
+
+def test_obsidian_is_a_registered_renderer():
+    from qra.export.renderers import RENDERERS
+
+    assert "obsidian" in RENDERERS

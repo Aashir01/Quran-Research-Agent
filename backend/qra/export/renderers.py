@@ -18,6 +18,8 @@ them handle it by accident:
 from __future__ import annotations
 
 import html
+import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -78,6 +80,85 @@ def to_markdown(document: Document) -> str:
         out += ["---", "```", document.licence, "```"]
     out.append(f"\n*{document.generated_at}*")
     return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
+# Obsidian-flavoured markdown
+# ---------------------------------------------------------------------------
+
+# Every ayah reference becomes a wikilink to a note named `Quran 2:255`, so a
+# vault accumulates one note per verse and the backlinks pane answers "what else
+# have I written about this verse" — which is the question a research vault
+# exists to answer and the one plain markdown cannot.
+_AYAH_REF_RE = re.compile(r"\b(\d{1,3}):(\d{1,3})\b")
+# The longest surah has 286 ayat; nothing beyond that is a reference.
+_MAX_SURAH, _MAX_AYAH = 114, 286
+
+
+def _wikilink_refs(text: str) -> str:
+    """Link plausible ayah references, and only those.
+
+    `d:d` is also how a clock renders, and the export footer carries one — the
+    first version turned "16:36 UTC" into a link to surah 16. The range check
+    catches the impossible cases; the footer is excluded separately, because
+    16:36 is a perfectly real ayah and no pattern can tell it from a time.
+    """
+
+    def link(match: re.Match) -> str:
+        surah, ayah = int(match.group(1)), int(match.group(2))
+        if not (1 <= surah <= _MAX_SURAH and 1 <= ayah <= _MAX_AYAH):
+            return match.group(0)
+        return f"[[Quran {surah}:{ayah}]]"
+
+    return _AYAH_REF_RE.sub(link, text or "")
+
+
+def to_obsidian(document: Document) -> str:
+    """Markdown with YAML frontmatter and wikilinked references.
+
+    Not a separate document model — the same blocks, rendered for a vault. The
+    frontmatter carries the citation count and the provenance mix so a note can
+    be filtered on them later, because a vault of a hundred exports is only
+    searchable if the exports are queryable.
+    """
+    refs: list[str] = []
+    provenances: set[str] = set()
+    for block in document.blocks:
+        if getattr(block, "ref", None):
+            refs.append(block.ref)
+        if getattr(block, "provenance", None):
+            provenances.add(block.provenance)
+
+    frontmatter = [
+        "---",
+        f"title: {json.dumps(document.title)}",
+        f"generated: {document.generated_at}",
+        f"citations: {len(document.citations) if getattr(document, 'citations', None) else 0}",
+        f"refs: [{', '.join(json.dumps(r) for r in dict.fromkeys(refs))}]",
+        f"provenance: [{', '.join(sorted(provenances))}]",
+        "tags: [quran-research]",
+        "---",
+        "",
+    ]
+
+    body = to_markdown(document)
+    # The footer is the generated timestamp, which contains a colon-separated
+    # pair that is a clock rather than a reference. Held back and re-appended
+    # rather than pattern-matched, because 16:36 is also a real ayah.
+    footer = f"*{document.generated_at}*"
+    if body.rstrip().endswith(footer):
+        body = body.rstrip()[: -len(footer)]
+
+    # Never link inside a fenced block either — the licence notice is fenced and
+    # carries version numbers shaped exactly like references.
+    out, fenced = [], False
+    for line in body.splitlines():
+        if line.strip().startswith("```"):
+            fenced = not fenced
+            out.append(line)
+            continue
+        out.append(line if fenced else _wikilink_refs(line))
+    return "\n".join([*frontmatter, *out, footer])
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +501,7 @@ def to_pdf(document: Document, path: Path) -> Path:  # noqa: C901
 
 RENDERERS = {
     "md": to_markdown,
+    "obsidian": to_obsidian,
     "html": to_html,
     "docx": to_docx,
     "pptx": to_pptx,
