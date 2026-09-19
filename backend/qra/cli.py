@@ -140,6 +140,28 @@ def cmd_seed(args) -> int:
     return 0
 
 
+def cmd_lexicon(args) -> int:
+    """Report how much of the corpus the loaded lexicons actually reach."""
+    from qra.analytics import fields
+
+    with session_scope() as session:
+        report = fields.lexicon_coverage(session)
+    print(f"corpus roots: {report['corpus_roots']}", flush=True)
+    for edition in report["editions"]:
+        print(
+            f"  {edition['slug']:20} {edition['roots_covered']:5}/{report['corpus_roots']} "
+            f"roots ({edition['coverage']:.1%}), {edition['entries']} entries",
+            flush=True,
+        )
+        if edition["biggest_gaps"]:
+            gaps = ", ".join(
+                f"{g['root']}({g['occurrences']})" for g in edition["biggest_gaps"][:5]
+            )
+            print(f"    biggest gaps: {gaps}", flush=True)
+    print(report["note"], flush=True)
+    return 0
+
+
 def cmd_rijal(args) -> int:
     """Project the hadith corpus into the transmission graph."""
     from qra.analytics import rijal
@@ -304,6 +326,10 @@ def main(argv: list[str] | None = None) -> int:
         help="which corpora to put in the BM25 index",
     )
     p.set_defaults(func=cmd_ingest)
+
+    sub.add_parser(
+        "lexicon", help="report lexicon coverage against the corpus roots"
+    ).set_defaults(func=cmd_lexicon)
 
     p = sub.add_parser("rijal", help="build or inspect the isnad transmission graph")
     p.add_argument("action", nargs="?", default="summary", choices=["build", "summary"])

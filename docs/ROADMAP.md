@@ -103,10 +103,33 @@ everything else.
 
 ## Track K — the lexical and variant layer
 
-- Lane's Lexicon (public domain) loaded and keyed by root, unblocking the
-  distinctions half of the semantic-field engine
-- Qira'at: the canonical variant readings, because a claim about what a word
-  means is unsound without them
+**Lane's Lexicon — sourcing report.** Lane's text is out of copyright, but the
+usable digitisation is not freely re-distributable in the way "public domain"
+suggests. The authoritative machine-readable copy is the laneslexicon project's
+`lexicon.sqlite`, whose text came from Tufts/Perseus under **CC-BY-SA 3.0 US**:
+loading it brings an attribution and share-alike obligation on the data. It is
+distributed only as a ~61MB GitHub release asset, which this environment's
+egress policy blocks, and `archive.org` is blocked as well.
+
+So the project's original position — licence-gated, supplied locally — turns
+out to be right for a second reason beyond licensing: there is no authoritative
+copy to fetch automatically. What has been built instead is the part that makes
+a supplied file trustworthy:
+
+- `qra lexicon` and `GET /analysis/lexicon/coverage` report what share of the
+  corpus's 1,651 roots an edition actually reaches, and list the biggest gaps
+  *by frequency* — a hole at صبر matters, a hole at a root occurring twice does
+  not.
+- `fields.distinctions()` now carries that coverage, because below full coverage
+  "no distinction available" is ambiguous between the lexicon being silent and
+  the lexicon not reaching that root at all.
+
+To load it: convert `lexicon.sqlite` to a root-keyed JSONL at
+`data/raw/lexicon-lane.jsonl`, run `qra ingest lexicon --slug lane`, then check
+`qra lexicon`.
+
+**Qira'at** remains outstanding: the canonical variant readings, because a claim
+about what a word means is unsound without them.
 
 ## Tracks E–H
 

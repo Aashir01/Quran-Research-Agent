@@ -271,6 +271,16 @@ def field_neighbours(
     return payload
 
 
+@router.get("/lexicon/coverage")
+def lexicon_coverage(session: Session = Depends(get_session)) -> dict:
+    """How much of the corpus a loaded lexicon reaches.
+
+    Below full coverage, "no distinction available" is ambiguous between the
+    lexicon being silent and the lexicon not reaching that root at all.
+    """
+    return fields.lexicon_coverage(session)
+
+
 @router.get("/distinctions")
 def lexical_distinctions(
     roots: list[str] = Query(...), session: Session = Depends(get_session)

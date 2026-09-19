@@ -753,3 +753,69 @@ def test_the_classical_reading_is_quoted_not_summarised(session, seeded_ijaz):
     assert entries
     assert all(entry["citation"] and entry["text"] for entry in entries)
     assert any("Tabari" in entry["edition"] for entry in entries)
+
+
+# --- the lexicon gap, quantified -------------------------------------------
+
+
+def test_coverage_is_reported_rather_than_assumed(session):
+    """A supplied lexicon is not the same as a usable one. An edition covering
+    a fifth of the roots answers confidently where it can and is silent
+    everywhere else, and silence is indistinguishable from "no distinction to
+    draw" unless the coverage is stated."""
+    from sqlalchemy import select
+
+    from qra.analytics import fields
+    from qra.models import Edition, LexiconEntry, Root
+
+    edition = Edition(
+        slug="test-coverage",
+        kind="lexicon",
+        name="Partial Test Lexicon",
+        author="Test",
+        language="ar",
+        direction="rtl",
+        source_url="local://tests",
+        license="test fixture",
+        license_status="unknown",
+    )
+    session.add(edition)
+    session.flush()
+    roots = session.scalars(
+        select(Root).order_by(Root.occurrence_count.desc()).limit(5)
+    ).all()
+    # Deliberately skip the single commonest root, so the gap report has to
+    # surface it at the top.
+    for root in roots[1:]:
+        session.add(
+            LexiconEntry(
+                edition_id=edition.id,
+                root_id=root.id,
+                headword=root.root_display,
+                text="a definition",
+            )
+        )
+    session.commit()
+    try:
+        report = fields.lexicon_coverage(session)
+        entry = next(e for e in report["editions"] if e["slug"] == "test-coverage")
+        assert entry["roots_covered"] == 4
+        assert entry["coverage"] < 0.01
+        # The most frequent uncovered root leads the gap list.
+        assert entry["biggest_gaps"][0]["root"] == roots[0].root_display
+        assert entry["biggest_gaps"][0]["occurrences"] >= entry["biggest_gaps"][-1]["occurrences"]
+    finally:
+        session.query(LexiconEntry).filter(
+            LexiconEntry.edition_id == edition.id
+        ).delete()
+        session.query(Edition).filter(Edition.id == edition.id).delete()
+        session.commit()
+
+
+def test_with_no_lexicon_the_gap_is_named_not_implied(session):
+    from qra.analytics import fields
+
+    report = fields.lexicon_coverage(session)
+    if not report["any_loaded"]:
+        assert report["corpus_roots"] == 1651
+        assert "is not the same as there being none" in report["note"]

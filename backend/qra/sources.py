@@ -458,9 +458,13 @@ LEXICONS: list[SourceSpec] = [
         license_status=PUBLIC_DOMAIN,
         direction="ltr",
         notes=(
-            "Public domain, but the good machine-readable scans need OCR cleanup. "
-            "Drop a root-keyed JSONL at data/raw/lexicon-lane.jsonl and run "
-            "`qra ingest lexicon --slug lane` to load it."
+            "Lane's text is out of copyright. The authoritative digitisation is the "
+            "laneslexicon project's lexicon.sqlite, whose text came from Tufts/Perseus "
+            "under CC-BY-SA 3.0 US — so a deployment that loads it inherits an "
+            "attribution and share-alike obligation on the data, which is why it is not "
+            "bundled. It is distributed only as a ~61MB GitHub release asset. "
+            "Convert it to a root-keyed JSONL at data/raw/lexicon-lane.jsonl and run "
+            "`qra ingest lexicon --slug lane`, then check `qra lexicon` for coverage."
         ),
     ),
     SourceSpec(

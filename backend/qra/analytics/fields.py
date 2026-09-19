@@ -269,6 +269,92 @@ def _lexicon_entries(session: Session, root_id: int) -> list[dict]:
     ]
 
 
+def lexicon_coverage(session: Session) -> dict:
+    """How much of the corpus a loaded lexicon actually reaches.
+
+    A supplied file is not the same as a usable one. A lexicon covering 300 of
+    the corpus's 1,651 roots will answer confidently for the roots it has and
+    silently fail for the rest, and "no entry" is indistinguishable from "no
+    distinction to draw" unless the coverage is stated.
+
+    Missing roots are reported *by frequency*, because a gap at صبر matters and
+    a gap at a root occurring twice does not.
+    """
+    editions = session.scalars(select(Edition).where(Edition.kind == "lexicon")).all()
+    total_roots = session.scalar(select(func.count()).select_from(Root)) or 0
+
+    per_edition = []
+    for edition in editions:
+        covered = (
+            session.scalar(
+                select(func.count(func.distinct(LexiconEntry.root_id))).where(
+                    LexiconEntry.edition_id == edition.id,
+                    LexiconEntry.root_id.is_not(None),
+                )
+            )
+            or 0
+        )
+        entries = (
+            session.scalar(
+                select(func.count())
+                .select_from(LexiconEntry)
+                .where(LexiconEntry.edition_id == edition.id)
+            )
+            or 0
+        )
+        unmatched = (
+            session.scalar(
+                select(func.count())
+                .select_from(LexiconEntry)
+                .where(
+                    LexiconEntry.edition_id == edition.id,
+                    LexiconEntry.root_id.is_(None),
+                )
+            )
+            or 0
+        )
+        missing = session.execute(
+            select(Root.root_display, Root.occurrence_count)
+            .where(
+                ~Root.id.in_(
+                    select(LexiconEntry.root_id).where(
+                        LexiconEntry.edition_id == edition.id,
+                        LexiconEntry.root_id.is_not(None),
+                    )
+                )
+            )
+            .order_by(Root.occurrence_count.desc())
+            .limit(15)
+        ).all()
+        per_edition.append(
+            {
+                "slug": edition.slug,
+                "name": edition.name,
+                "entries": entries,
+                "roots_covered": covered,
+                "coverage": round(covered / total_roots, 4) if total_roots else 0.0,
+                "entries_not_matched_to_a_root": unmatched,
+                "biggest_gaps": [
+                    {"root": r, "occurrences": n} for r, n in missing
+                ],
+            }
+        )
+
+    return {
+        "corpus_roots": total_roots,
+        "editions": per_edition,
+        "any_loaded": bool(editions),
+        "note": (
+            "No lexicon edition is loaded. `fields.distinctions` will report every "
+            "distinction as unavailable, which is correct but is not the same as there "
+            "being none."
+            if not editions
+            else "Coverage is the share of the corpus's roots the edition can answer for. "
+            "Below 100%, an absent entry and an absent distinction look identical."
+        ),
+    }
+
+
 def distinctions(session: Session, roots: list[str]) -> dict:
     """What the lexicons say separates these roots — or that nothing is loaded.
 
@@ -294,9 +380,14 @@ def distinctions(session: Session, roots: list[str]) -> dict:
 
     loaded = session.scalars(select(Edition).where(Edition.kind == "lexicon")).all()
     available = any(entry.get("lexicon_entries") for entry in resolved)
+    # When an edition *is* loaded but this root has no entry, "unavailable" is
+    # ambiguous between "the lexicon is silent here" and "the lexicon does not
+    # reach this root at all". Coverage disambiguates it.
+    coverage = lexicon_coverage(session) if loaded else None
     return {
         "roots": resolved,
         "lexicon_editions_loaded": [e.slug for e in loaded],
+        "coverage": coverage,
         "available": available,
         "note": (
             "Distinctions are quoted from the loaded lexicons with their references."
