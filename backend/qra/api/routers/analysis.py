@@ -21,6 +21,7 @@ from qra.analytics import (
     naskh,
     nazm,
     sandbox,
+    textscience,
     transfer,
 )
 from qra.api.deps import needs
@@ -125,6 +126,59 @@ def transfer_pair(a: str, b: str, session: Session = Depends(get_session)) -> di
 @router.get("/transfer/root/{root}")
 def transfer_root(root: str, session: Session = Depends(get_session)) -> dict:
     return transfer.compare_root(session, root)
+
+
+# --- Track J: quantitative text science ------------------------------------
+
+
+@router.get("/text/information")
+def text_information(control: bool = True, session: Session = Depends(get_session)) -> dict:
+    """Entropy and Zipf for the Qur'an, against ordinary Arabic of the period.
+
+    Read the difference, never the absolute: every natural-language corpus sits
+    near a Zipf slope of -1, so "the Qur'an follows Zipf's law" is a fact about
+    language. The control is what makes any of these numbers a statement.
+    """
+    try:
+        return textscience.information(session, control=control)
+    except textscience.TextScienceError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/text/stylometry")
+def text_stylometry(session: Session = Depends(get_session)) -> dict:
+    """Per-surah style profile: richness, concentration, ayah length, rhyme."""
+    return {"surahs": [p.to_dict() for p in textscience.profiles(session)]}
+
+
+@router.get("/text/makki-madani")
+def text_makki_madani(session: Session = Depends(get_session)) -> dict:
+    """Is the Makki/Madani stylistic distinction measurable?
+
+    Six length-robust measures, Welch's t, Cohen's d, corrected across the
+    family. It could have come out flat, and one measure does.
+    """
+    try:
+        return textscience.makki_madani(session)
+    except textscience.TextScienceError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/text/nuzul-trend")
+def text_nuzul_trend(
+    measure: str = "mean_ayah_words", session: Session = Depends(get_session)
+) -> dict:
+    """Spearman correlation of a measure against the traditional revelation order."""
+    try:
+        return textscience.nuzul_trend(session, measure)
+    except textscience.TextScienceError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/text/prosody")
+def text_prosody(limit: int = 20, session: Session = Depends(get_session)) -> dict:
+    """Rhyme endings and how tightly each surah holds to one."""
+    return textscience.prosody(session, limit=min(limit, 60))
 
 
 # --- WP-26 nazm and ring structure -----------------------------------------
