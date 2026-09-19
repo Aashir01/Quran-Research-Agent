@@ -412,9 +412,16 @@ def conflation_report(session: Session, *, limit: int = 25, min_narrations: int 
             "covering both al-Thawri and Ibn 'Uyayna. Nothing downstream should treat a "
             "high-spread node as an individual."
         ),
+        "blind_to": (
+            "Same-generation homonyms. The diagnostic is generational — it finds a name at "
+            "chain positions no single lifetime spans — so two contemporaries sharing a name "
+            "occupy the same positions and are invisible to it. That includes the most famous "
+            "case in the literature: سفيان is al-Thawri (d. 161) and Ibn Uyayna (d. 198), and "
+            "its spread here is ~0.15, well inside the range consistent with one man."
+        ),
         "fix": (
-            "Only biographical data resolves this. Load a rijal source with death years and "
-            "teacher/student lists and the ambiguous nodes can be split."
+            "Only biographical data resolves either kind. Load a rijal source with death years "
+            "and teacher/student lists and the ambiguous nodes can be split."
         ),
     }
 

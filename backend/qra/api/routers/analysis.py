@@ -24,6 +24,9 @@ from qra.analytics import (
     textscience,
     transfer,
 )
+from qra.analytics import (
+    objections as objections_mod,
+)
 from qra.api.deps import needs
 from qra.db import get_session
 
@@ -126,6 +129,37 @@ def transfer_pair(a: str, b: str, session: Session = Depends(get_session)) -> di
 @router.get("/transfer/root/{root}")
 def transfer_root(root: str, session: Session = Depends(get_session)) -> dict:
     return transfer.compare_root(session, root)
+
+
+# --- Track E: objection generation -----------------------------------------
+
+
+@router.post("/objections")
+def generate_objections(
+    claim: str = Body(""),
+    significance: dict | None = Body(None),
+    roots: list[str] | None = Body(None),
+    narrator: str | None = Body(None),
+    measure: str | None = Body(None),
+    comparisons_made: int | None = Body(None),
+    session: Session = Depends(get_session),
+) -> dict:
+    """The strongest computable case *against* a claim.
+
+    The Critic asks whether a claim is supported. This asks what the best
+    argument against it is — because the failure mode of a research tool is
+    rarely a claim with no evidence, it is a claim with real evidence and an
+    unexamined alternative.
+    """
+    return objections_mod.objections(
+        session,
+        claim=claim,
+        significance=significance,
+        roots=roots,
+        narrator=narrator,
+        measure=measure,
+        comparisons_made=comparisons_made,
+    )
 
 
 # --- Track J: quantitative text science ------------------------------------

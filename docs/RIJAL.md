@@ -43,6 +43,27 @@ With both fixes the median name spans 0.08 of the chain — as a single person
 should — and the top of the suspect list is عبد الله, محمد, مسلم: the most
 common names in the language.
 
+### What this metric cannot see
+
+**Same-generation homonyms.** The diagnostic is generational: it finds a name
+appearing at chain positions no single lifetime spans. Two men of the *same*
+generation sharing a name occupy the same positions and are invisible to it.
+
+That blind spot includes the most famous case in the literature. سفيان is
+al-Thawrī (d. 161 AH) and Ibn ʿUyayna (d. 198 AH), two major and distinct
+transmitters, and its interquartile spread is **0.15** — comfortably inside the
+range consistent with one man. The same goes for شعبة at 0.17.
+
+Under the earlier max − min metric سفيان did head the suspect list, and an
+earlier draft of this document cited it as the detector's textbook catch. That
+was wrong: it ranked first because max − min saturates for any frequent name,
+not because the metric had found anything. Replacing max − min with the
+interquartile range was the right fix, and it cost this case.
+
+So the report finds one kind of conflation and not the other. Names spanning
+generations are caught; names shared within a generation need death dates, and
+death dates need a rijal source.
+
 ## What is not computed
 
 Gradings. Reliability is not a property of a man; it is something al-Bukhārī or
