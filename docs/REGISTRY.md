@@ -57,6 +57,31 @@ a status change with no event under it, which is the one thing this table exists
 to prevent. Same shape as the rijal rebuild guard that ran after its first
 `DELETE`.
 
+# The public portal
+
+Read-only, unauthenticated, and deliberately narrow: `/portal`, `/portal/claims`,
+`/portal/findings`.
+
+**Nothing reaches it by default.** A finding appears only once a reviewer has
+approved it; a claim only at `supported`, `qualified` or `contested`, and never
+if it has been superseded. These are *never selected* rather than filtered out
+of a listing, so a route added here cannot widen the set by omission. Asking for
+a non-public status is a 404 rather than an empty list that might later stop
+being empty.
+
+**Nothing is published without what qualifies it.** Every claim carries its
+evidence level and its unanswered objections; every finding carries its
+citations. A portal that showed conclusions and left the caveats behind a login
+would be the most damaging surface in the application, because it is the one
+that gets screenshotted.
+
+**A contested claim is shown as contested, not withheld.** Withholding it would
+let the page read as a list of settled results, which is the impression this
+material least supports.
+
+An unpublished claim returns the same 404 as one that does not exist —
+confirming that a draft exists is itself a disclosure.
+
 # Citation styles
 
 Four styles — `chicago`, `mla`, `ijmes`, `plain` — because a researcher who

@@ -22,6 +22,7 @@ from qra.api.routers import (
     groups,
     hadith,
     meta,
+    portal,
     registry,
     research,
     rijal,
@@ -73,6 +74,7 @@ app.include_router(grammar.router)
 app.include_router(groups.router)
 app.include_router(rijal.router)
 app.include_router(registry.router)
+app.include_router(portal.router)
 app.include_router(hadith.router)
 app.include_router(hadith.asbab_router)
 app.include_router(export.router)
