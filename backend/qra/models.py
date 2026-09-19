@@ -1605,3 +1605,132 @@ class ClaimEvent(Base):
         CheckConstraint("length(reason) > 0", name="ck_claim_event_reason_present"),
         Index("ix_claim_event_time", "claim_id", "created_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Track F: study series and the trainer
+# ---------------------------------------------------------------------------
+
+
+class StudySeries(Base):
+    """An ordered curriculum over the corpus.
+
+    A series is an *editorial* object in the same way the life domains are:
+    deciding that the conditional structures come before the oath forms is a
+    teaching judgement, not a fact about the text. ``provenance`` says so on
+    every row, and the items themselves point at corpus objects rather than
+    carrying text, so a series can never drift from what it claims to teach.
+    """
+
+    __tablename__ = "study_series"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(96), unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(256))
+    description: Mapped[str] = mapped_column(Text, default="")
+    # reading | morphology | thematic
+    kind: Mapped[str] = mapped_column(String(24), default="reading", index=True)
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id"), nullable=True, index=True
+    )
+    org_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organisation.id"), nullable=True, index=True
+    )
+    published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    provenance: Mapped[str] = mapped_column(String(24), default="curated")
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (CheckConstraint("length(title) > 0", name="ck_series_title_present"),)
+
+
+class SeriesItem(Base):
+    """One step. Points at a corpus object; never carries its text.
+
+    ``target`` is a reference — ``2:255``, a root, a grammar query — resolved at
+    read time. A series that stored the verse would be a series that could
+    disagree with the corpus, which is the one thing it must not be able to do.
+    """
+
+    __tablename__ = "series_item"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    series_id: Mapped[int] = mapped_column(ForeignKey("study_series.id"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    # ayah_range | root | concept | grammar_query
+    kind: Mapped[str] = mapped_column(String(24))
+    target: Mapped[str] = mapped_column(String(256))
+    note: Mapped[str] = mapped_column(Text, default="")
+
+    __table_args__ = (
+        UniqueConstraint("series_id", "position", name="uq_series_position"),
+    )
+
+
+class SeriesProgress(Base):
+    __tablename__ = "series_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    series_id: Mapped[int] = mapped_column(ForeignKey("study_series.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    completed_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("series_id", "user_id", "position", name="uq_series_progress"),
+    )
+
+
+class TrainerCard(Base):
+    """One scheduled item of recall practice.
+
+    ``subject`` is a corpus key — an ayah reference, a root, a word id — and the
+    prompt and answer are both rendered from the database at review time. A card
+    never stores scripture, for the same reason nothing else here does: a stored
+    copy is a copy that can drift, and the drift would be silent and in the
+    learner's memory.
+
+    Scheduling is SM-2, which is a convention with modest evidence behind it
+    rather than a finding about memory. The interval it produces is a suggestion
+    about when to look again, not a claim about retention.
+    """
+
+    __tablename__ = "trainer_card"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    # reference_recall | morphology | root_location
+    kind: Mapped[str] = mapped_column(String(24), index=True)
+    subject: Mapped[str] = mapped_column(String(128))
+
+    interval_days: Mapped[int] = mapped_column(Integer, default=0)
+    ease: Mapped[float] = mapped_column(Float, default=2.5)
+    repetitions: Mapped[int] = mapped_column(Integer, default=0)
+    lapses: Mapped[int] = mapped_column(Integer, default=0)
+    due_at: Mapped[datetime] = _now()
+    last_grade: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "kind", "subject", name="uq_trainer_card"),
+        Index("ix_trainer_due", "user_id", "due_at"),
+    )
+
+
+class TrainerReview(Base):
+    """The review log.
+
+    Kept because the scheduler's only honest self-assessment is its own history:
+    whether cards it called due were actually remembered. Without the log the
+    interval is an assertion nobody can check.
+    """
+
+    __tablename__ = "trainer_review"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    card_id: Mapped[int] = mapped_column(ForeignKey("trainer_card.id"), index=True)
+    grade: Mapped[int] = mapped_column(Integer)
+    interval_before: Mapped[int] = mapped_column(Integer, default=0)
+    interval_after: Mapped[int] = mapped_column(Integer, default=0)
+    reviewed_at: Mapped[datetime] = _now()
+
+    __table_args__ = (CheckConstraint("grade between 0 and 5", name="ck_review_grade"),)

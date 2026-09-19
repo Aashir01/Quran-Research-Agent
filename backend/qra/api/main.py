@@ -27,6 +27,7 @@ from qra.api.routers import (
     research,
     rijal,
     search,
+    study,
     workspace,
 )
 from qra.config import settings
@@ -75,6 +76,7 @@ app.include_router(groups.router)
 app.include_router(rijal.router)
 app.include_router(registry.router)
 app.include_router(portal.router)
+app.include_router(study.router)
 app.include_router(hadith.router)
 app.include_router(hadith.asbab_router)
 app.include_router(export.router)
