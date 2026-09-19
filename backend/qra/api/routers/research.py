@@ -177,3 +177,50 @@ def status() -> dict:
             "test hypotheses and verify citations. Only prose drafting changes."
         ),
     }
+
+
+# --- Track E: scope and escalation -----------------------------------------
+
+
+@router.get("/scope")
+def scope(question: str, session: Session = Depends(get_session)) -> dict:
+    """What this question will cost, and what kind of answer it can have.
+
+    Nothing is run to produce it. The most useful field is `shape`: the
+    commonest disappointment with a tool like this is asking an interpretive
+    question and receiving counts, and that is knowable in advance.
+    """
+    from qra.agents.scope import estimate
+
+    return estimate(session, question)
+
+
+@router.post("/escalate")
+def escalate(
+    critic_report: dict | None = Body(None),
+    claim: str = Body(""),
+    roots: list[str] | None = Body(None),
+    significance: dict | None = Body(None),
+    narrator: str | None = Body(None),
+    measure: str | None = Body(None),
+    comparisons_made: int | None = Body(None),
+    session: Session = Depends(get_session),
+) -> dict:
+    """A second, adversarial review of a draft the Critic has flagged.
+
+    Runs with no providers: the objection engine is independent by mechanism
+    rather than by model. Whether a second *model* provider exists is reported
+    separately rather than assumed.
+    """
+    from qra.agents.escalation import escalate as run_escalation
+
+    return run_escalation(
+        session,
+        critic_report=critic_report,
+        claim=claim,
+        roots=roots,
+        significance=significance,
+        narrator=narrator,
+        measure=measure,
+        comparisons_made=comparisons_made,
+    )

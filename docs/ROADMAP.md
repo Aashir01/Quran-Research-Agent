@@ -136,3 +136,37 @@ about what a word means is unsound without them.
 Carried over from the original specification: deep-research agent and objection
 generation (E), workspace and export surfaces (F), institutional review and
 multi-tenancy (G), evaluation expansion to 300 cases and the red-team suite (H).
+
+---
+
+## Track E — status
+
+**Done.**
+
+- **Objection generation** (`qra.analytics.objections`, `POST /analysis/objections`).
+  The Critic asks whether a claim is supported; this asks what the strongest
+  case against it is. Eight computed objections — base rate, multiple
+  comparisons, small n, polysemy, the hadith control, narrator conflation,
+  length confound, universal-claim decidability — each stating what would have
+  to be true for the claim to survive it. Objections that do not apply are not
+  raised.
+- **Scope estimation** (`qra.agents.scope`, `GET /research/scope`). Names the
+  *shape* of a question before running it: decidable, comparative, interpretive
+  or underdetermined. The commonest disappointment with a corpus tool is asking
+  an interpretive question and receiving counts, and that is knowable from the
+  wording. Also reports evidence base, estimated cost, and whether a model
+  provider is needed at all — many questions here are answered by SQL.
+- **Critic escalation** (`qra.agents.escalation`, `POST /research/escalate`).
+  A second adversarial pass on a flagged draft. It runs with no providers,
+  because the objection engine is independent *by mechanism* rather than by
+  model. Disagreement between the passes is reported rather than merged — a
+  claim one reviewer clears and another does not is the claim to look at — and
+  the absence of a second model provider is stated rather than papered over.
+
+**Not done:** deep multi-step research, agent memory, run interrupts, voice.
+
+## Tracks F and G — not started
+
+F (Word add-in, decks, citation styles, journal, trainer, audio, Obsidian, Urdu
+UI, study series) and G (review queue beyond the existing reviewer console,
+claim registry, multi-tenancy, public portal, collaboration).
