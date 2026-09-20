@@ -44,6 +44,43 @@ def rijal_conflation(
     )
 
 
+@router.get("/search")
+def rijal_search(
+    q: str, limit: int = 20, session: Session = Depends(get_session)
+) -> dict:
+    """Find a narrator by name.
+
+    Declared before /narrator/{narrator_id} for readability only — they do not
+    collide, since one is /search and the other is two segments. The rijal
+    router exists at all because a collision of exactly that kind sent every
+    path here to 404.
+    """
+    try:
+        return rijal.search(session, q, limit=limit)
+    except rijal.RijalError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/common-link")
+def rijal_common_link(
+    hadith_ids: list[int] = Body(..., embed=True),
+    session: Session = Depends(get_session),
+) -> dict:
+    """The narrator a bundle of parallel chains converges on, tested.
+
+    POST rather than GET: a bundle is an arbitrary list of ids, and a URL is the
+    wrong place for one. The response always carries its null model — a common
+    link that random bundles of the same shape reproduce is a description of
+    this bundle, not evidence about it.
+    """
+    if len(hadith_ids) > 200:
+        raise HTTPException(422, "at most 200 narrations per bundle")
+    try:
+        return rijal.common_link(session, hadith_ids)
+    except rijal.RijalError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.get("/narrator/{narrator_id}")
 def rijal_narrator(narrator_id: int, session: Session = Depends(get_session)) -> dict:
     try:

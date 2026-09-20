@@ -451,6 +451,22 @@ export const api = {
       }[];
       reading: string;
     }>(`/analytics/narrative/${figure}`),
+  /* --- rijal: the transmission graph --------------------------------- */
+  rijalSummary: () => request<RijalSummary>("/rijal"),
+  rijalHubs: (limit = 25) => request<RijalHubs>(`/rijal/hubs?limit=${limit}`),
+  rijalConflation: (limit = 25, minNarrations = 20) =>
+    request<RijalConflation>(
+      `/rijal/conflation?limit=${limit}&min_narrations=${minNarrations}`,
+    ),
+  rijalSearch: (q: string, limit = 20) =>
+    request<RijalSearch>(`/rijal/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  rijalNarrator: (id: number) => request<RijalNarrator>(`/rijal/narrator/${id}`),
+  rijalCommonLink: (hadithIds: number[]) =>
+    request<RijalCommonLink>("/rijal/common-link", {
+      method: "POST",
+      body: JSON.stringify({ hadith_ids: hadithIds }),
+    }),
+
   conditionals: (roots?: string[]) =>
     request<{
       total: number;
@@ -464,6 +480,142 @@ export const api = {
         confidence: number;
       }[];
     }>(`/analytics/conditionals?${roots?.map((r) => `roots=${encodeURIComponent(r)}`).join("&") ?? ""}`),
+};
+
+/* --- rijal ---------------------------------------------------------------
+ *
+ * Two fields here are load-bearing and must never be dropped on the way to a
+ * component. `role` is a claim about position in these chains, not about
+ * biography. `receive_ratio` is null when a name has no edges in one
+ * direction — not 0, which would read as a ratio that was measured.
+ */
+
+export type NarratorRole = "source" | "transmitter" | "collector" | "isolated";
+
+export type RijalSummary = {
+  narrators: number;
+  chain_positions: number;
+  edges: number;
+  gradings: number;
+  built: boolean;
+  note: string;
+};
+
+export type RijalHub = {
+  narrator_id: number;
+  name: string;
+  students: number;
+  teachers: number;
+  transmitted_to: number;
+  received_from: number;
+  narrations: number;
+  share_of_all_positions: number;
+  role: NarratorRole;
+  receive_ratio: number | null;
+};
+
+export type RijalHubs = {
+  narrators_total: number;
+  edges_total: number;
+  chain_positions_total: number;
+  mean_narrations_per_name: number;
+  exhaustive: boolean;
+  returned: number;
+  hubs: RijalHub[];
+  measure: string;
+  roles: Record<string, string>;
+  caveat: string;
+};
+
+export type ConflationSuspect = {
+  narrator_id: number;
+  name: string;
+  narrations: number;
+  /** Normalised 0 (Prophet end) .. 1 (collector). */
+  position_range: [number, number];
+  interquartile_spread: number;
+  position_spread: number;
+  mean_position: number;
+};
+
+export type RijalConflation = {
+  examined: number;
+  /** The baseline. A spread of 0.83 means nothing without it. */
+  median_position_spread: number;
+  metric: string;
+  suspects: ConflationSuspect[];
+  reading: string;
+  blind_to: string;
+  fix: string;
+};
+
+export type RijalSearchRow = {
+  narrator_id: number;
+  name: string;
+  narrations: number;
+  depth_spread: number;
+  position_spread: number;
+};
+
+export type RijalSearch = {
+  query: string;
+  normalised: string;
+  total: number;
+  returned: number;
+  exhaustive: boolean;
+  narrators: RijalSearchRow[];
+  note: string;
+};
+
+export type RijalEdge = { name: string; narrations: number; collections: string[] };
+
+export type RijalNarrator = {
+  id: number;
+  name: string;
+  variants: string[];
+  narrations: number;
+  depth_range: [number, number];
+  depth_spread: number;
+  mean_depth: number;
+  by_collection: Record<string, number>;
+  received_from: RijalEdge[];
+  transmitted_to: RijalEdge[];
+  gradings: { grade: string; critic: string; source_work: string; reasoning: string }[];
+  // Both are prose the backend writes about its own limits. They are not
+  // decoration and the UI must show them rather than summarising them away.
+  identity_warning: string;
+  grading_note: string;
+  position_range: [number, number];
+  position_spread: number;
+  [key: string]: unknown;
+};
+
+export type RijalCommonLink = {
+  chains_examined: number;
+  common_link: {
+    narrator_id: number;
+    name: string;
+    chains_covered: number;
+    share: number;
+    mean_depth: number;
+    depth_spread: number;
+  };
+  partial_common_links: {
+    narrator_id: number;
+    name: string;
+    chains_covered: number;
+    share: number;
+    mean_depth: number;
+  }[];
+  null_model: {
+    trials: number;
+    mean_top_share: number | null;
+    p_value: number | null;
+    method: string;
+  };
+  beyond_chance: boolean;
+  reading: string;
+  provenance: string;
 };
 
 /* --- the commons -------------------------------------------------------- */

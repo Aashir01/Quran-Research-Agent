@@ -26,6 +26,7 @@ const NAV: { href: string; en: string; ur: string; icon: IconName }[] = [
   { href: "/groups", en: "Groups", ur: "حلقے", icon: "book" },
   { href: "/notes", en: "Notes", ur: "یادداشت", icon: "note" },
   { href: "/research", en: "Research", ur: "تحقیق", icon: "compass" },
+  { href: "/rijal", en: "Isnad", ur: "اسناد", icon: "isnad" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {

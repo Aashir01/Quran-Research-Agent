@@ -294,6 +294,37 @@ def _edges(session: Session) -> tuple[dict[int, list[tuple[int, int]]], dict[int
     return forward, backward
 
 
+# Where a name sits in the chains it appears in. The ratio of what a name
+# receives to what it passes on separates three structurally different things
+# that a raw narration count flattens together:
+#
+#   source       received ≈ 0  — a Companion, or the Prophet: chains *end* here
+#   transmitter  received ≈ passed on — a middle-generation link
+#   collector    passed on ≈ 0 — the compiler of the book, the last link
+#
+# It falls straight out of the graph and matches what is independently known:
+# Ibn Abi Shayba scores 16.9 because he is an author, not a transmitter.
+#
+# This is a claim about position in the corpus, never about biography. A man
+# whose transmissions the collections mostly omit will look like a source here
+# for reasons that have nothing to do with when he lived.
+SOURCE_RATIO = 0.35
+COLLECTOR_RATIO = 3.0
+
+
+def _structural_role(received: int, passed_on: int) -> tuple[str, float | None]:
+    if not received and not passed_on:
+        return "isolated", None
+    if not passed_on:
+        return "collector", None
+    ratio = received / passed_on
+    if ratio <= SOURCE_RATIO:
+        return "source", round(ratio, 3)
+    if ratio >= COLLECTOR_RATIO:
+        return "collector", round(ratio, 3)
+    return "transmitter", round(ratio, 3)
+
+
 def hubs(session: Session, *, limit: int = 25) -> dict:
     """The narrators the corpus flows through.
 
@@ -321,6 +352,7 @@ def hubs(session: Session, *, limit: int = 25) -> dict:
                 "narrations": counts.get(narrator_id, 0),
             }
         )
+        scored[-1]["role"], scored[-1]["receive_ratio"] = _structural_role(in_w, out_w)
     scored.sort(key=lambda row: -row["narrations"])
     all_narrations = sum(row["narrations"] for row in scored)
     for row in scored[:limit]:
@@ -342,6 +374,15 @@ def hubs(session: Session, *, limit: int = 25) -> dict:
         "returned": min(limit, len(scored)),
         "hubs": scored[:limit],
         "measure": "weighted degree over the transmission graph",
+        "roles": {
+            "source": "chains end here — a Companion, or the Prophet",
+            "transmitter": "a middle link, receiving and passing on in balance",
+            "collector": "receives from many and passes on to almost none: the book's compiler",
+            "basis": (
+                "the ratio of what a name receives to what it passes on, in this corpus. "
+                "A statement about position in these chains, never about biography."
+            ),
+        },
         "caveat": (
             "A hub is a name that many chains pass through. Where that name is shared by "
             "several men the hub is an artefact of conflation rather than a fact about a "
@@ -614,6 +655,62 @@ def invalidate() -> None:
     _CORPUS_CHAINS = None
 
 
+def search(session: Session, query: str, *, limit: int = 20) -> dict:
+    """Find a narrator by name.
+
+    The graph holds twenty thousand names. Without this the only way in is the
+    hub list, which by construction shows the twenty-five names a researcher
+    already knows; everyone else is unreachable.
+
+    Matching runs on ``canonical``, the normalised form the graph was built
+    under, so a query typed with or without diacritics and with any of the alif
+    variants reaches the same node.
+    """
+    query = (query or "").strip()
+    if len(query) < 2:
+        raise RijalError("a narrator search needs at least two characters")
+
+    key = search_form(query)[:128]
+    matches = Narrator.canonical.like(f"%{key}%")
+    rows = session.execute(
+        select(
+            Narrator.id,
+            Narrator.display_name,
+            Narrator.narration_count,
+            Narrator.depth_spread,
+            Narrator.position_spread,
+        )
+        .where(matches)
+        .order_by(Narrator.narration_count.desc())
+        .limit(min(limit, 100))
+    ).all()
+    total = session.scalar(select(func.count()).select_from(Narrator).where(matches)) or 0
+
+    return {
+        "query": query,
+        "normalised": key,
+        "total": total,
+        "returned": len(rows),
+        # Ordered by narration count and truncated, so when there are more
+        # matches than rows the tail is not shown and must not be counted from.
+        "exhaustive": total <= len(rows),
+        "narrators": [
+            {
+                "narrator_id": r[0],
+                "name": r[1],
+                "narrations": r[2],
+                "depth_spread": r[3],
+                "position_spread": r[4],
+            }
+            for r in rows
+        ],
+        "note": (
+            "A row here is a name, not a person. Check /rijal/conflation before "
+            "treating one as an individual."
+        ),
+    }
+
+
 def narrator(session: Session, narrator_id: int, *, limit: int = 20) -> dict:
     """One name: where it sits, who it received from, who received from it."""
     row = session.get(Narrator, narrator_id)
@@ -743,6 +840,6 @@ def summary(session: Session) -> dict:
         "note": (
             "Run `qra rijal build` to project the hadith corpus into the transmission graph."
             if not narrators_total
-            else "Nodes are names. See /hadith/rijal/conflation before treating one as a person."
+            else "Nodes are names. See /rijal/conflation before treating one as a person."
         ),
     }

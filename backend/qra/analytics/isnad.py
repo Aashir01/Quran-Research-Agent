@@ -170,6 +170,58 @@ def _confidence(method: str, boundary: int, total: int) -> float:
     return max(0.0, min(1.0, base))
 
 
+# Where a name stops.
+#
+# A chain segment often carries more than the name: an honorific
+# ("رضي الله عنه"), a transmission formula ("بهذا الاسناد" — "with this chain"),
+# a tahwil mark, or the opening words of the report itself. All of it was being
+# recorded as part of the narrator's name, which had two effects: formulae
+# became narrator nodes with their own narration counts, and every Companion
+# was split across several nodes — one bare, one per honorific — understating
+# each.
+#
+# Truncating at the first marker word handles all of it, and handles the
+# truncated forms that edge-stripping misses: the six-word cap cuts
+# "عايشه رضي الله عنها" to "عايشه رضي الله", which matches no complete
+# honorific but does start with رضي.
+_NAME_STOPS_RAW = (
+    # honorifics
+    "رضي", "صلي", "رحمه", "رحمها", "عليه", "عليها",
+    # transmission formulae
+    "بهذا", "بمثل", "بمثله", "مثله", "مثلها", "مثل", "نحوه", "بنحوه", "بمعناه",
+    "جميعا", "كلاهما", "كلهم", "واللفظ", "الاسناد",
+    # the report leaking across the boundary
+    "يقول", "قال", "قالت", "تقول", "سمعته", "وروي", "غير", "الا",
+    # The complementiser opening a reported clause: "نافع ان ابن عمر ..." is
+    # Nafi' followed by the report, not a narrator called "Nafi' that".
+    "ان", "انه", "انها", "انما", "اني",
+)
+
+# Folded exactly as the pipeline folds its input. Without this the constants
+# are written in one orthography and compared against another, so they never
+# match — which is why the first pass left 290 formula nodes standing.
+NAME_STOPS = frozenset(search_form(word) for word in _NAME_STOPS_RAW)
+
+# The tahwil mark: one letter standing for "the chain switches here". Notation,
+# not a man, and it was being glued onto whichever name preceded it.
+TAHWIL = search_form("ح")
+
+
+def _clean_name(name: str) -> str:
+    """Reduce one chain segment to the name it contains, or to nothing.
+
+    Returns "" when the segment holds no name — a bare formula, a stray tahwil
+    mark — so the caller drops it rather than recording notation as a narrator.
+    """
+    words = [w for w in name.split() if w and w != TAHWIL]
+    kept: list[str] = []
+    for word in words:
+        if word in NAME_STOPS:
+            break
+        kept.append(word)
+    return " ".join(kept).strip()
+
+
 def narrators(isnad_text: str) -> list[str]:
     """Names in the chain, in transmission order.
 
@@ -198,7 +250,7 @@ def narrators(isnad_text: str) -> list[str]:
     ]
     out: list[str] = []
     for part in parts:
-        name = part.strip()
+        name = _clean_name(part)
         if len(name.split()) > 6 or not name:
             continue
         if name not in out:

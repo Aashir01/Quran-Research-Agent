@@ -271,3 +271,123 @@ def test_a_rebuild_refuses_to_orphan_stored_gradings(graph):
             NarratorGrading.narrator_id == row.id
         ).delete()
         graph.commit()
+
+
+# ---------------------------------------------------------------------------
+# name cleaning
+# ---------------------------------------------------------------------------
+
+
+class TestNameCleaning:
+    """Chain segments that are notation rather than people.
+
+    13% of the nodes in the first built graph were matn formulae: "بهذا الاسناد"
+    ("with this chain") and "مثله" ("the like of it") had their own narration
+    counts, and every Companion appeared twice — once bare, once carrying an
+    honorific — which split one man's transmissions across two nodes and
+    understated both. Abu Hurayra gained 482 narrations when the honorific
+    fragments merged back.
+
+    Every case runs its input through `search_form` first, because that is what
+    the pipeline feeds `_clean_name`. An earlier version of these tests passed
+    raw strings and passed, while the real graph kept 290 formula nodes: the
+    constants were written in one orthography and matched against another.
+    """
+
+    @staticmethod
+    def _clean(text: str) -> str:
+        from qra.analytics.isnad import _clean_name
+        from qra.arabic import search_form
+
+        return _clean_name(search_form(text))
+
+    def test_a_bare_formula_is_not_a_narrator(self):
+        for formula in ("بهذا الاسناد", "مثله", "نحوه", "جميعا", "ح"):
+            assert self._clean(formula) == "", formula
+
+    def test_an_honorific_is_stripped_not_dropped(self):
+        # Dropping the whole segment would lose a real transmission; keeping it
+        # whole splits Abu Hurayra across two nodes.
+        assert self._clean("ابي هريره رضي الله عنه") == "ابي هريره"
+        assert self._clean("ابن عمر رضي الله عنهما") == "ابن عمر"
+
+    def test_a_truncated_honorific_still_stops_the_name(self):
+        # The six-word cap cuts "عايشه رضي الله عنها" before the last word, so
+        # the segment matches no complete honorific. Truncating at the first
+        # marker word catches it; edge-stripping did not.
+        assert self._clean("عايشه رضي الله") == "عايشه"
+        assert self._clean("انس بن مالك رضي الله") == "انس بن مالك"
+
+    def test_a_name_survives_a_trailing_formula(self):
+        assert self._clean("الزهري بهذا الاسناد") == "الزهري"
+        assert self._clean("الزهري ح") == "الزهري"
+        assert self._clean("سهيل بهذا الاسناد مثله غير") == "سهيل"
+
+    def test_matn_that_leaked_across_the_boundary_is_cut(self):
+        assert self._clean("ابي هريره قال سمعت") == "ابي هريره"
+        assert self._clean("انس يقول") == "انس"
+        assert self._clean("النبي مثله وروي") == "النبي"
+
+    def test_a_complementiser_does_not_become_part_of_a_name(self):
+        # "نافع ان ابن عمر قال..." is Nafi' followed by the report. Without
+        # this the graph carried a narrator called "Nafi' that" with 79
+        # narrations of its own.
+        assert self._clean("نافع ان") == self._clean("نافع")
+
+    def test_a_name_beginning_with_a_stop_word_survives(self):
+        from qra.arabic import search_form
+
+        # انس starts with the letters of ان. Matching whole words rather than
+        # prefixes is what keeps Anas b. Malik from being truncated to nothing.
+        assert self._clean("انس بن مالك") == search_form("انس بن مالك")
+
+    def test_an_ordinary_name_is_untouched(self):
+        from qra.arabic import search_form
+
+        for name in ("نافع", "مالك", "عبد الله بن مسعود", "سفيان", "ابو بكر بن ابي شيبه"):
+            assert self._clean(name) == search_form(name), name
+
+
+class TestStructuralRole:
+    """Source / transmitter / collector, read off the chain positions.
+
+    The ratio of what a name receives to what it passes on separates three
+    things a raw narration count flattens together. It is checkable against
+    what is independently known, which is why these tests name real people.
+    """
+
+    def test_the_boundaries(self):
+        from qra.analytics.rijal import _structural_role
+
+        assert _structural_role(0, 100)[0] == "source"
+        assert _structural_role(100, 100)[0] == "transmitter"
+        assert _structural_role(100, 0)[0] == "collector"
+        assert _structural_role(0, 0)[0] == "isolated"
+
+    def test_a_name_with_no_edges_reports_no_ratio(self):
+        from qra.analytics.rijal import _structural_role
+
+        # Not 0.0 — there is no ratio to report, and a zero would be read as one.
+        assert _structural_role(0, 0)[1] is None
+        assert _structural_role(50, 0)[1] is None
+
+    def test_the_corpus_classifies_known_figures_correctly(self, session):
+        from qra.analytics import rijal
+
+        roles = {h["name"]: h["role"] for h in rijal.hubs(session, limit=25)["hubs"]}
+        if not roles:
+            pytest.skip("transmission graph has not been built")
+
+        # Companions are where chains end.
+        for companion in ("ابي هريره", "عايشه", "النبي"):
+            if companion in roles:
+                assert roles[companion] == "source", companion
+        # Ibn Abi Shayba compiled a musannaf: he receives from everyone and
+        # passes on to almost nobody. If this ever reads "transmitter" the
+        # ratio has stopped measuring what it claims to.
+        if "ابو بكر بن ابي شيبه" in roles:
+            assert roles["ابو بكر بن ابي شيبه"] == "collector"
+        # Sufyan and Shu'ba are middle-generation links.
+        for transmitter in ("سفيان", "شعبه", "الاعمش"):
+            if transmitter in roles:
+                assert roles[transmitter] == "transmitter", transmitter

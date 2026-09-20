@@ -138,6 +138,15 @@ export const Icon = {
       <path d="M12 10v4M12 17h.01" />
     </Svg>
   ),
+  // Three nodes and the edges between them: a chain of transmission.
+  isnad: (p: Props) => (
+    <Svg {...p}>
+      <circle cx="5" cy="6" r="2.2" />
+      <circle cx="19" cy="6" r="2.2" />
+      <circle cx="12" cy="18" r="2.2" />
+      <path d="M6.6 7.6 10.4 16M17.4 7.6 13.6 16M7.2 6h9.6" />
+    </Svg>
+  ),
   layers: (p: Props) => (
     <Svg {...p}>
       <path d="m12 3 8.5 4.5L12 12 3.5 7.5Z" />
