@@ -497,11 +497,27 @@ def review_finding(
     finding.reviewed_at = datetime.now(UTC)
     finding.review_notes = notes
     session.commit()
+
+    # A rejected finding must not keep feeding the next run through memory.
+    # Without this cascade a conclusion the reviewers sent back would still be
+    # recalled by the planner, which is how a retracted result gets laundered
+    # into work that never saw the rejection.
+    invalidated = 0
+    if not approve:
+        from qra.agents.memory import invalidate_for_finding
+
+        invalidated = invalidate_for_finding(
+            session,
+            finding.id,
+            reason=f"finding #{finding.id} had changes requested on review",
+        )
+
     return {
         "id": finding.id,
         "review_status": finding.review_status,
         "reviewer_id": reviewer_id,
         "public": finding.review_status == "approved",
+        "memories_invalidated": invalidated,
     }
 
 

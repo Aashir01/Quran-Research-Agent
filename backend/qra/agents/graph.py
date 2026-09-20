@@ -46,10 +46,17 @@ except ImportError:  # pragma: no cover
     LANGGRAPH_AVAILABLE = False
 
 
-def _checkpoint(session: Session, ledger: EvidenceLedger, status: str) -> None:
+def _checkpoint(
+    session: Session, ledger: EvidenceLedger, status: str, *, principal=None
+) -> None:
     run = session.get(ResearchRun, ledger.run_id)
     if run is None:
-        run = ResearchRun(id=ledger.run_id, question=ledger.question, language=ledger.language)
+        run = ResearchRun(
+            id=ledger.run_id,
+            question=ledger.question,
+            language=ledger.language,
+            org_id=getattr(principal, "org_id", None),
+        )
         session.add(run)
     run.ledger = ledger.to_dict()
     run.status = status
@@ -66,10 +73,12 @@ class ResearchGraph:
         *,
         on_step: Callable[[str, dict], None] | None = None,
         interrupt_before: tuple[str, ...] = (),
+        principal=None,
     ):
         self.session = session
         self.on_step = on_step or (lambda name, payload: None)
         self.interrupt_before = interrupt_before
+        self.principal = principal
 
     # -- nodes -----------------------------------------------------------
     def _node(self, name: str, ctx: AgentContext, state: dict) -> dict:
@@ -78,7 +87,7 @@ class ResearchGraph:
             payload = agent.run(ctx, **state.get("kwargs", {}))
             span["result"] = payload if isinstance(payload, dict) else {}
         self.on_step(name, payload if isinstance(payload, dict) else {})
-        _checkpoint(self.session, ctx.ledger, f"running:{name}")
+        _checkpoint(self.session, ctx.ledger, f"running:{name}", principal=self.principal)
         return payload or {}
 
     def run(
@@ -91,8 +100,8 @@ class ResearchGraph:
         author_id: int | None = None,
     ) -> EvidenceLedger:
         ledger = EvidenceLedger(question, language=language, run_id=run_id)
-        ctx = AgentContext(session=self.session, ledger=ledger)
-        _checkpoint(self.session, ledger, "running")
+        ctx = AgentContext(session=self.session, ledger=ledger, principal=self.principal)
+        _checkpoint(self.session, ledger, "running", principal=self.principal)
 
         plan = self._node("planner", ctx, {"kwargs": {}})
         terms = plan.get("terms", [])
@@ -105,7 +114,7 @@ class ResearchGraph:
                 break
             if name in self.interrupt_before:
                 ledger.log("orchestrator", "interrupt", before=name)
-                _checkpoint(self.session, ledger, f"interrupted:{name}")
+                _checkpoint(self.session, ledger, f"interrupted:{name}", principal=self.principal)
                 return ledger
             self._node(name, ctx, {"kwargs": {"terms": terms, "surah": surah}})
             steps += 1
@@ -117,7 +126,7 @@ class ResearchGraph:
         self._node("critic", ctx, {"kwargs": {}})
         self._node("librarian", ctx, {"kwargs": {"author_id": author_id}})
 
-        _checkpoint(self.session, ledger, "complete")
+        _checkpoint(self.session, ledger, "complete", principal=self.principal)
         return ledger
 
     # -- LangGraph path --------------------------------------------------
@@ -137,11 +146,11 @@ class ResearchGraph:
         def make(name: str):
             def node(state: dict) -> dict:
                 ledger = EvidenceLedger.from_dict(state["ledger"])
-                ctx = AgentContext(session=self.session, ledger=ledger)
+                ctx = AgentContext(session=self.session, ledger=ledger, principal=self.principal)
                 payload = AGENTS[name].run(
                     ctx, terms=state.get("terms"), language=state.get("language", "en")
                 )
-                _checkpoint(self.session, ledger, f"running:{name}")
+                _checkpoint(self.session, ledger, f"running:{name}", principal=self.principal)
                 out: dict[str, Any] = {"ledger": ledger.to_dict()}
                 if name == "planner" and isinstance(payload, dict):
                     out["terms"] = payload.get("terms", [])
@@ -201,7 +210,7 @@ def run_research(
     )
     set_router(router)
     try:
-        graph = ResearchGraph(session)
+        graph = ResearchGraph(session, principal=principal)
         ledger = graph.run(question, language=language, run_id=run_id, author_id=author_id)
     finally:
         set_router(None)

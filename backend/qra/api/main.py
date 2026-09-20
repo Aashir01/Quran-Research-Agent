@@ -21,6 +21,7 @@ from qra.api.routers import (
     grammar,
     groups,
     hadith,
+    memory,
     meta,
     portal,
     registry,
@@ -74,6 +75,7 @@ app.include_router(community.router)
 app.include_router(grammar.router)
 app.include_router(groups.router)
 app.include_router(rijal.router)
+app.include_router(memory.router)
 app.include_router(registry.router)
 app.include_router(portal.router)
 app.include_router(study.router)

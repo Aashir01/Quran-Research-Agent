@@ -15,6 +15,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -37,6 +38,12 @@ class AgentContext:
     session: Session
     ledger: EvidenceLedger
     max_spans_per_query: int = 12
+    # Who the run belongs to. Carried so that rows the agents write land in the
+    # right tenant and so that memory recall cannot reach another team's runs.
+    # Before this existed, agent-written Findings were stamped with no org at
+    # all: invisible to their own team's prior-work search and visible to every
+    # org-less account.
+    principal: Any = None
 
 
 class Agent:
@@ -98,7 +105,54 @@ class Planner(Agent):
 
         ctx.ledger.add_plan(steps, sub_questions[:8], agent=self.name)
         ctx.ledger.log(self.name, "terms", terms=[t["value"] for t in terms])
-        return {"terms": terms, "specialists": list(specialists)}
+        recalled = self._recall(ctx, terms)
+        return {"terms": terms, "specialists": list(specialists), "memory": recalled}
+
+    def _recall(self, ctx: AgentContext, terms: list[dict]) -> list[dict]:
+        """Surface what earlier runs already settled, as questions not answers.
+
+        Recalled memories go to `add_open_question`, which is the one channel
+        that never reaches the citation list. A memory says a conclusion was
+        reached; the finding it points at holds the evidence. Routing it
+        anywhere near `add_spans` would let "we remember concluding X" be cited
+        as a source for X.
+        """
+        from qra.agents import memory as mem
+
+        try:
+            recalled = mem.recall(
+                ctx.session,
+                mem.keys_for(ctx.ledger.question, terms),
+                limit=6,
+                principal=ctx.principal,
+            )
+        except Exception:  # noqa: BLE001 - memory is an optimisation, never a gate
+            ctx.ledger.log(self.name, "memory_unavailable")
+            return []
+
+        for entry in recalled:
+            corroboration = (
+                f", reached independently {entry['confirmations']} times"
+                if entry["confirmations"] > 1
+                else ""
+            )
+            pointer = (
+                f" (finding #{entry['finding_id']})" if entry.get("finding_id") else ""
+            )
+            if entry["kind"] == "dead_end":
+                prefix = "Earlier run found nothing here"
+            elif entry["kind"] == "caveat":
+                prefix = "Known trap in this kind of analysis"
+            else:
+                prefix = "Earlier run concluded"
+            ctx.ledger.add_open_question(
+                f"{prefix}{corroboration}: {entry['statement']}{pointer} "
+                "— memory, not evidence; re-open the finding to check it.",
+                agent=self.name,
+            )
+        if recalled:
+            ctx.ledger.log(self.name, "recalled", count=len(recalled))
+        return recalled
 
     def _resolve_terms(self, session: Session, question: str) -> list[dict]:
         from qra.analytics.hypothesis import _match_terms, _term_lexicon
@@ -978,6 +1032,11 @@ class Librarian(Agent):
         summary = (ledger.draft or "")[:4000]
         finding = Finding(
             author_id=author_id,
+            # Nothing stamped this before, so every agent-written finding landed
+            # with org_id NULL: absent from its own team's prior-work search and
+            # present in every org-less account's. The read path was scoped; the
+            # write path was not, which made the scoping a no-op.
+            org_id=getattr(ctx.principal, "org_id", None),
             question=ledger.question,
             summary=summary,
             language=ledger.language,
@@ -996,14 +1055,31 @@ class Librarian(Agent):
                 f"first recorded {prior[0].created_at:%Y-%m-%d}. Check before duplicating the work.",
                 agent=self.name,
             )
-        ctx.ledger.log(self.name, "persisted", finding_id=finding.id, prior=len(prior))
+        learned = self._harvest(ctx, finding.id)
+        ctx.ledger.log(
+            self.name, "persisted", finding_id=finding.id, prior=len(prior), learned=len(learned)
+        )
         return {
             "finding_id": finding.id,
+            "memories": learned,
             "prior_findings": [
                 {"id": p.id, "created_at": p.created_at.isoformat(), "question": p.question}
                 for p in prior
             ],
         }
+
+    def _harvest(self, ctx: AgentContext, finding_id: int) -> list[dict]:
+        """Carry the run's null results and refutations into memory."""
+        from qra.agents import memory as mem
+
+        try:
+            return mem.harvest(
+                ctx.session, ctx.ledger, finding_id=finding_id, principal=ctx.principal
+            )
+        except Exception:  # noqa: BLE001 - a completed run must not fail on bookkeeping
+            ctx.session.rollback()
+            ctx.ledger.log(self.name, "harvest_failed")
+            return []
 
     @staticmethod
     def _fingerprint(ledger: EvidenceLedger) -> str:

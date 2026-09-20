@@ -624,7 +624,10 @@ class Finding(Base):
     citations: Mapped[list] = mapped_column(JSONType, default=list)
     run_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     fingerprint: Mapped[str] = mapped_column(String(64), index=True)  # dedupe key
-    review_status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
+    # 24, not 16: "changes_requested" is 17 characters, so every rejection
+    # raised StringDataRightTruncation. Only the approval path was ever
+    # exercised, which is why a broken review gate looked like a working one.
+    review_status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
     reviewer_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1734,3 +1737,67 @@ class TrainerReview(Base):
     reviewed_at: Mapped[datetime] = _now()
 
     __table_args__ = (CheckConstraint("grade between 0 and 5", name="ck_review_grade"),)
+
+
+# ---------------------------------------------------------------------------
+# Agent memory: what a team already learned, across runs
+# ---------------------------------------------------------------------------
+
+
+class MemoryEntry(Base):
+    """One thing worth carrying from a finished run into the next one.
+
+    A memory is a *pointer to evidence*, never evidence. It records that some
+    run reached a result, hit a dead end, or discovered a methodological trap,
+    together with the run and finding that can be re-opened to check it. The
+    recall path refuses to hand a memory to anything that produces citations,
+    because "we remember concluding X" is not a source for X.
+
+    Three things keep it honest:
+
+    ``confirmations``
+        A count of independent runs that reached the same statement — a
+        countable fact. Deliberately not a confidence score, which would be
+        invented.
+
+    ``corpus_revision``
+        The corpus build this was learned from. A number derived from an
+        earlier ingest may no longer hold; such memories are withheld rather
+        than silently served.
+
+    ``stale_reason``
+        Set when the finding behind a memory is retracted or superseded. Rows
+        are kept, not deleted, so "we used to believe this" stays inspectable.
+    """
+
+    __tablename__ = "memory_entry"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organisation.id"), nullable=True, index=True
+    )
+    # result | dead_end | caveat
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    # The subject this attaches to: "root:صبر", "surah:2", "method:entropy".
+    key: Mapped[str] = mapped_column(String(128), index=True)
+    statement: Mapped[str] = mapped_column(Text)
+    detail: Mapped[dict] = mapped_column(JSONType, default=dict)
+    finding_id: Mapped[int | None] = mapped_column(ForeignKey("finding.id"), nullable=True, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Reuses the L0-L4 scale the rest of the system grades evidence on.
+    evidence_level: Mapped[str] = mapped_column(String(4), default="L4")
+    corpus_revision: Mapped[str] = mapped_column(String(32), default="", index=True)
+    confirmations: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    digest: Mapped[str] = mapped_column(String(32), index=True)
+    stale_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _now()
+    last_confirmed_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "digest", name="uq_memory_digest"),
+        CheckConstraint(
+            "kind in ('result','dead_end','caveat')", name="ck_memory_kind"
+        ),
+        CheckConstraint("confirmations >= 1", name="ck_memory_confirmations"),
+        Index("ix_memory_recall", "org_id", "key", "stale_reason"),
+    )

@@ -126,6 +126,37 @@ def test_a_researcher_cannot_approve_their_own_finding(session, two_users):
     assert payload["review_status"] == "approved"
 
 
+def test_a_finding_can_actually_be_rejected(session, two_users):
+    """The rejection path, which no test reached until it was needed elsewhere.
+
+    `review_status` was String(16) and the rejection writes "changes_requested",
+    which is 17. Every rejection raised StringDataRightTruncation and rolled the
+    transaction back, while approval fit and passed — a review gate that could
+    approve and could not reject, with a green suite over it.
+    """
+    from qra.models import Finding
+    from qra.workspace.service import review_finding
+
+    author, reviewer = two_users
+    finding = Finding(
+        author_id=author.id,
+        question="q",
+        summary="s",
+        fingerprint="fp-reject",
+        review_status="submitted",
+    )
+    session.add(finding)
+    session.commit()
+
+    payload = review_finding(
+        session, finding.id, reviewer_id=reviewer.id, approve=False, notes="needs a control"
+    )
+    assert payload["review_status"] == "changes_requested"
+    assert payload["public"] is False
+    session.refresh(finding)
+    assert finding.review_status == "changes_requested"
+
+
 def test_review_requires_the_reviewer_role(session, two_users):
     from qra.models import Finding
     from qra.workspace.service import review_finding

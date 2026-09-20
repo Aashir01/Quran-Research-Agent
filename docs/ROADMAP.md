@@ -163,7 +163,18 @@ multi-tenancy (G), evaluation expansion to 300 cases and the red-team suite (H).
   claim one reviewer clears and another does not is the claim to look at — and
   the absence of a second model provider is stated rather than papered over.
 
-**Not done:** deep multi-step research, agent memory, run interrupts, voice.
+- **Cross-run memory** (`qra.agents.memory`, `/memory`). The planner consults
+  what earlier runs already settled before choosing specialists, and the
+  Librarian harvests null results and refuted claims on the way out. Recalled
+  memories enter the ledger as *open questions*, never spans, because only
+  spans become citations — a memory points at a finding, it is not evidence for
+  one, and `redteam.memory-cited-as-evidence` asserts the separation. Memories
+  go stale on three signals (a reviewer's rejection cascading from the finding,
+  a corpus re-ingest, an explicit `forget` with a reason) and are withheld
+  rather than deleted. `confirmations` counts independent runs, not confidence.
+  See `docs/MEMORY.md`.
+
+**Not done:** deep multi-step research, run interrupts, voice.
 
 ## Tracks F and G — not started
 

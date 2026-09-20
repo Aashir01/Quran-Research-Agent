@@ -316,6 +316,50 @@ def _org_isolation_holds(session: Session) -> bool:
         session.commit()
 
 
+def _memory_cannot_be_cited(session: Session) -> bool:
+    """A remembered conclusion must not come back as a source for itself.
+
+    Memory exists so a run does not redo settled work. The failure mode is that
+    it quietly becomes evidence: the planner recalls "an earlier run concluded
+    X", the scribe treats that as support, and X ends up cited to a memory of
+    itself with no ayah, no isnad and no finding under it. A citation loop like
+    that is indistinguishable from a result until someone tries to check it.
+
+    The structural guarantee is that recall writes to `open_questions` and never
+    to `spans`, because only spans become citations. This asserts both halves.
+    """
+    from qra.agents import memory as mem
+    from qra.agents.ledger import EvidenceLedger
+    from qra.agents.roles import AgentContext, Planner
+    from qra.models import MemoryEntry
+
+    probe_key = "term:redteamprobe"
+    statement = "An earlier run concluded something that must never be citable."
+    created = mem.remember(
+        session,
+        kind="result",
+        key=probe_key,
+        statement=statement,
+        principal=None,
+    )
+    try:
+        ledger = EvidenceLedger("what about redteamprobe?", run_id="redteam-memory")
+        ctx = AgentContext(session=session, ledger=ledger, principal=None)
+        Planner()._recall(ctx, [{"kind": "term", "value": "redteamprobe", "roots": []}])
+
+        if not any(statement in q for q in ledger.open_questions):
+            return False  # the probe never landed, so the test proved nothing
+        # Spans are the only thing that becomes a citation.
+        if ledger.spans or ledger.cited_refs():
+            return False
+        return all(entry["citable"] is False for entry in mem.recall(session, [probe_key]))
+    finally:
+        session.query(MemoryEntry).filter(MemoryEntry.id == created["id"]).delete(
+            synchronize_session=False
+        )
+        session.commit()
+
+
 ATTACKS: tuple[Attack, ...] = (
     Attack(
         "fabricated-plain",
@@ -422,6 +466,13 @@ ATTACKS: tuple[Attack, ...] = (
         "A span whose text tries to close the content delimiter",
         "retrieved text escapes its channel and becomes instruction",
         _content_channel_cannot_be_closed,
+    ),
+    Attack(
+        "memory-cited-as-evidence",
+        "a memory points at evidence, it is not evidence",
+        "A recalled conclusion reaching the draft as its own citation",
+        "a claim is cited to the memory of having made it, with nothing under it",
+        _memory_cannot_be_cited,
     ),
 )
 

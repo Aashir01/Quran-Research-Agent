@@ -121,6 +121,18 @@ def cmd_ingest(args) -> int:
             print("lexical:", results["lexical"], flush=True)
             results["hadith_links"] = link_hadith_to_ayat(session)
             print("hadith_links:", results["hadith_links"], flush=True)
+
+    # Memories carry the corpus build they were learned from, and the stamp is
+    # cached per process. Dropping it here means this process stops treating
+    # numbers derived from the previous corpus as current. Other processes
+    # (a running API server) pick the new stamp up on restart; until then they
+    # serve memories from a corpus that has moved, so an ingest wants a restart.
+    from qra.agents.memory import invalidate_revision
+
+    invalidate_revision()
+    from qra.analytics.rijal import invalidate as invalidate_rijal
+
+    invalidate_rijal()
     return 0
 
 
